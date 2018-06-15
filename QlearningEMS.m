@@ -10,11 +10,8 @@
 % The environment is the Simulink Model of the power grid (FC, Battery, DC
 % to DC converters and Load).
 
-% NOTE:
-% This script is made for use 100% of a 8GB ram 
-
 % STATUS:
-% Body is working. Next step: setting up the Simulink model.
+% 15/16/18. Body is working. Next step: setting up the Simulink model.
 
 % TO DO:
 % Plot the performance
