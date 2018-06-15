@@ -14,7 +14,7 @@
 % This script is made for use 100% of a 8GB ram 
 
 % STATUS:
-% Start. 
+% Body is working. Next step: setting up the Simulink model.
 
 % TO DO:
 % Plot the performance
