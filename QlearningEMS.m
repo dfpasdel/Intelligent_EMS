@@ -22,13 +22,17 @@
 % TO DO:
 % Plot the performance
 
+clear all
+close all
+clc
+
 % #########################################################################
 % ################                STATES             ######################
 % #########################################################################
 
-P_FC_Q = single(linspace(0,1.5,31)); % Fuel-cell power
-P_load_Q = single(linspace(0,1.5,31)); % Load power
-SOC_Q = single(linspace(0,10,11)); % Battery state of charge
+P_FC_Q = single(linspace(0,1.5,16)); % Fuel-cell power
+P_load_Q = single(linspace(0,1.5,16)); % Load power
+SOC_Q = single(linspace(0.5,0.9,6)); % Battery state of charge
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
 
@@ -59,7 +63,7 @@ actions=[0 -dI_FC_Q dI_FC_Q];
 % (number of parameters and number of actions possible for each parameter)
 
 % #########################################################################
-% ###############               SETTINGS             ######################
+% ###############          Q-learning SETTINGS         ####################
 % #########################################################################
 
 % Confidence in new trials?
@@ -67,7 +71,7 @@ learnRate = 0.99;
 
 % Exploration vs exploitation
 epsilon = 0.5; % Initial value
-epsilonDecay = 0.98; % Decay factor per iteration
+epsilonDecay = 0.995; % Decay factor per iteration
 
 % Future vs present value
 discount = 0.9;
@@ -78,17 +82,40 @@ successRate = 1; % No noise
 % Starting point : to be defined
 
 % How many episodes of testing ? (i.e. how many courses the system attend?) 
-maxEpi = 10;
-% How long are the episodes ? (i.e. how long are the courses?)
-maxit = 100;
+maxEpi = 1;
 
-% Time-step for running the model:
-dt = 0.05;
+% % How long are the episodes ? (i.e. how long are the courses?)
+% maxit = 100;
 
 % Q matrix:
 % Lines: states | Rows: actions
 Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]); 
 % Q elements are stored on 32bits (allow Qfactors between 2^-126 and 2^127)
+
+% #########################################################################
+% ################        INITIALIZE THE MODEL        #####################
+% #########################################################################
+
+% Choose model
+model = 'DC_grid_V2';
+
+% Set the (approximate duration of one episode:
+totalTime = 1500;
+% Set the length of one iteration in the simulink model
+iterationTime = 1.3;
+
+% Calculates the nomber of iterations
+maxit = floor(totalTime/iterationTime);
+
+% Empty structure containing the results of one iteration:
+systemStatesTab = struct(...
+    'time',zeros(maxit,1)...
+    ,'P_FC',zeros(maxit,1)...
+    ,'P_Batt',zeros(maxit,1)...
+    ,'SOC_battery',zeros(maxit,1)...
+    ,'Load_profile',zeros(maxit,1)...
+    ,'Setpoint_I_FC',zeros(maxit,1));
+
 
 
 
@@ -96,10 +123,42 @@ Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 % #############              START LEARNING              ##################
 % #########################################################################
 
+
+
 for episodes = 1:maxEpi
     
-    % Start point to fill here...
-
+    % $$$$$$$$$$$$$$$     INITIALIZE THE EPISODE      $$$$$$$$$$$$$$$$$$$$$
+    
+    % Measure the simulation time
+    t_SimulinkTotal = 0;
+    t_LearningStart = cputime;
+    
+    % Load the initial conditions
+    load('initialState_1A.mat');
+    inputArray(2) = 1;
+    % Loading the SimState
+    currentSimState = initialSimState;
+    
+    % Initial time (time when the iterations start)
+    t_init = initialSimState.snapshotTime;
+    
+    
+    % Charge the input for initial time: inputArray
+    % (the input cannot ba calculated for initial time)
+    % Row 1: Current command for the FC at the bus interface (i.e. between
+    %        DC/DC conveter and bus. Unit is p.u. (base is the load).
+    % Row 2: Load profile (1 for nominal power)
+    inputsFromWS = Simulink.Parameter(inputArray);
+    inputsFromWS.StorageClass='ExportedGlobal';
+    
+    % Initialize the the model constants to ensure consistency with the
+    % initialization phase
+    initialize_model_constants(model,model_constants);
+    
+    % Open the model and set the simulation modes
+    initialize_model(model);
+    
+    % Starting point
     new_Q_state_struct = struct(...
         'P_FC',initial_outputsToWS.P_FC,...
         'P_load',initial_outputsToWS.Load_profile,...
@@ -109,7 +168,11 @@ for episodes = 1:maxEpi
     % Convert the structure to array for use in the Q-learning calculation
     current_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
     
+    % Number of random actions:
+    nRandom = 0;
+    
     for g = 1:maxit
+        fprintf('Episode n.%i, iteration n.%i/%i\n',episodes,g,maxit);
         
         % $$$$$$$$$$$$$$$$$$     Pick an action     $$$$$$$$$$$$$$$$$$$$$$$
         % Interpolate the state within our discretization (ONLY for
@@ -121,34 +184,55 @@ for episodes = 1:maxEpi
         
         % $$$$$$$$$$$$$$$$$    Choose an action    $$$$$$$$$$$$$$$$$$$$$$$$
         % EITHER 1) pick the best action according the Q matrix (EXPLOITATION). 
-        if (rand()>epsilon || episodes == maxEpi) && rand()<=successRate % Pick according to the Q-matrix it's the last episode or we succeed with the rand()>epsilon check. Fail the check if our action doesn't succeed (i.e. simulating noise)
+        fprintf('epsilon = %2.2f\n',epsilon);
+        if rand()>epsilon... % Exploit
+                && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
+                && not(isequal(Q(sIdx,:),[0 0 0]))   % Take a random action when all the coefficients are equals
             [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
         % OR 2) Pick a random action (EXPLORATION)  
         else
             aIdx_fc = randi(size(actions,2),1); % Random action for FC!
+            disp('random action');
+            nRandom = nRandom + 1;
         end
         
         % $$$$$$$$$$$$$$$$$    Run the model    $$$$$$$$$$$$$$$$$$$$$$$$$$$
         % New input for the model:
-        I_FC_Q = 0; % To delete
-        dI_FC_Q = actions(1,aIdx_fc);
-        I_FC_Q = I_FC_Q + dI_FC_Q;
-        if I_FC_Q(1)<0 % Current always flowing out of the FC
-            I_FC_Q(1)=0;
-        end
-        % Updating the state:
-        %    run Simulink here for dt
-        new_Q_state_struct = struct(...
-            'P_FC',initial_outputsToWS.P_FC,...
-            'P_load',initial_outputsToWS.Load_profile,...
-            'SOC',initial_outputsToWS.SOC...
-            );
         
+        dI_FC_Q = actions(1,aIdx_fc);
+        inputArray(1) = inputArray(1) + dI_FC_Q;
+        if inputArray(1)<0 % Current always flowing out of the FC
+            inputArray(1)=0;
+        end
+        inputsFromWS.Value = inputArray;
+        
+        % Updating the state by running the model
+        t_SimulinkIterationStart = cputime;
+        [currentSimState,simOut] = run_simulation(model,currentSimState,iterationTime);
+        t_SimulinkTotal = t_SimulinkTotal + cputime - t_SimulinkIterationStart;
+        
+        % Get the current time of the simulation:
+        current_time = currentSimState.snapshotTime - t_init;
+        
+        % Fill the results of the iteration in the structure containing
+        % results:
+        systemStatesTab.time(g) = current_time;
+        systemStatesTab.Fuel_Cell_power(g)  = simOut.outputsToWS.P_FC.Data(end); % Take the last value to see the impact of the input at the end of iteration time.
+        systemStatesTab.Battery_power(g) = simOut.outputsToWS.P_batt.Data(end);
+        systemStatesTab.SOC_battery(g) = simOut.outputsToWS.SOC.Data(end);
+        systemStatesTab.Setpoint_I_FC(g) = inputArray(1);
+        systemStatesTab.Load_profile(g) = simOut.outputsToWS.Load_profile.Data(end);
+        
+        % Fill the Q-learning state
+        new_Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
+        new_Q_state_struct.P_load = simOut.outputsToWS.Load_profile.Data(end);
+        new_Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
+
         % Convert the structure to array for use in the Q-learning calculation
         new_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
         
         % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-        reward = 1; % rewardFunc(new_Q_state);
+        reward = getReward(new_Q_state_struct);
         
         % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
         % NB: no end condition of the episode here, because it is a
@@ -156,10 +240,10 @@ for episodes = 1:maxEpi
         [~,snewIdx] = min(sum((Q_states - repmat(new_Q_state_array,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
         current_Q_state_array = new_Q_state_array;
         
-        if episodes ~= maxEpi % On the last iteration, stop learning and just execute. Otherwise...
+        %if episodes ~= maxEpi % On the last iteration, stop learning and just execute. Otherwise...
             % Update Q
             Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(max(Q(snewIdx,:))) - Q(sIdx,aIdx_fc) );
-        end
+        %end
         
         % Decay the odds of picking a random action vs picking the
         % estimated "best" action. I.e. we're becoming more confident in
@@ -167,5 +251,55 @@ for episodes = 1:maxEpi
         epsilon = epsilon*epsilonDecay;
            
     end % end iterations counting for single episode
+    t_LearningTotal = cputime - t_LearningStart;
+    
+    % Statistics
+    fprintf('Percentage of random actions: %3.2f\n',nRandom/maxit*100);
+    fprintf('Simulink time: %5.1f\n',t_SimulinkTotal);
+    fprintf('Learning time (Simulink + Q-process): %5.1f\n',t_LearningTotal);
+    ratio = (t_SimulinkTotal/t_LearningTotal)*100;
+    fprintf('Ratio Simulink/Learning time (percent): %3.2f\n',ratio);
+    
+    
+    % Plotting the result of the episode
+    figure(episodes)
+    subplot(311)
+    plot(systemStatesTab.time,systemStatesTab.Fuel_Cell_power,'o-');
+    hold on
+    plot(systemStatesTab.time,systemStatesTab.Battery_power,'.-');
+    legend('Power FC','Power Batt');
+    subplot(312);
+    plot(systemStatesTab.time,systemStatesTab.SOC_battery,'*-');
+    legend('SOC');
+    subplot(313);
+    plot(systemStatesTab.time,systemStatesTab.Setpoint_I_FC,'o-');
+    hold on
+    plot(systemStatesTab.time,systemStatesTab.Load_profile,'.-');
+    %ylim([0,1.5]);
+    legend('I_FC','Load profile');
+    
     
 end % end episodes counting
+
+
+%%
+function initialize_model(model)
+% DESCRIPTION:
+% Function to be used before multiple simulations of the model.
+% This function aim to reduce the time of execution of the simulation by
+% setting 'FastRestart' i.e. no re-compilling of the model between the
+% runs.
+% NB: When the initialize function is called, the initial state must be 
+% known
+% FREQUENCY OF EXECUTION: 
+% Once at the beginning of a multiple run simulation
+% EXAMPLE OF USE:
+% See example and test in the script SimState_testing_and_example
+
+open_system(model);
+set_param(model,'FastRestart','off');
+set_param(model,'SaveFinalState','on','FinalStateName','myOperPoint',...
+    'SaveCompleteFinalSimState','on','LoadInitialState','on');
+set_param(model,'SimulationMode','accelerator');
+set_param(model,'FastRestart','on');
+end
