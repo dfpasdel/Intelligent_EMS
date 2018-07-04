@@ -11,8 +11,22 @@
 %       battery response time
 %       initial current of the FC delivered to the bus (in p.u., between
 %                                        the DC/DC converter and the bus
-%       initial load (in p.u.)
+%       initial load ID (see below)
 %       'name of the .mat file to be generated'
+
+% Initial load ID:
+% In the simunink model, a switch block allows to select a type of load
+% (constant, square, sinus). The ID are the followings:
+% 1- 50% load 
+% 2- 100% load 
+% 3- Pulse of period 1sec
+% 4- Pulse of period 5sec
+% 5- Pulse of period 60sec
+% 6- Sinus of period 1sec
+% 7- Sinus of period 5sec
+% 8- Sinus of period 60sec
+% 9- 0% load (default case)
+
 
 % NOTE: The FC have internal resistance, then I_bus_FC is not proportionnal 
 % to the power output.
@@ -20,18 +34,16 @@
 % I_bus_FC = 36.64A => P_FC = 6kW
 % I_bus_FC = 56.31A => P_FC = 8kW
 % Remember to divide by the nominal current.
-%
-% 
 
-model = 'DC_grid_V1';
-make_initialState(model,100,1.5,70,2,16.18/30,0.5,'initialState_1A');
-make_initialState(model,100,1.5,99,2,16.18/30,0.5,'initialState_1B');
-make_initialState(model,100,1.5,30,2,16.18/30,0.5,'initialState_1C');
-make_initialState(model,100,1.5,70,2,0,0,'initialState_2X');
-make_initialState(model,100,1.5,70,2,0,0,'initialState_3X');
+model = 'DC_grid_V2';
+make_initialState(model,100,1.5,70,2,16.18/30,1,'initialState_1A');
+make_initialState(model,100,1.5,99,2,16.18/30,1,'initialState_1B');
+make_initialState(model,100,1.5,30,2,16.18/30,1,'initialState_1C');
+make_initialState(model,100,1.5,70,2,0,9,'initialState_2X'); % No load for initialization
+make_initialState(model,100,1.5,70,2,0,9,'initialState_3X'); % No load for initialization
 
 function make_initialState(simulinkModel,nom_vol,rat_cap,init_soc,...
-    batt_response_time,I_bus_FC_0,load_profile_0,name)
+    batt_response_time,I_bus_FC_0,ID_load_profile_0,name)
 % DESCRIPTION:
 % OUTPUTS:
 % A .mat file containing:
@@ -68,7 +80,7 @@ model_constants = struct(...
 
 % ################         Input parameters          ###################### 
 % Converting the initial set points in an array form for the model:
-inputArray = [I_bus_FC_0,load_profile_0]; 
+inputArray = [I_bus_FC_0,ID_load_profile_0]; 
 inputsFromWS = Simulink.Parameter(inputArray);
 assignin('base','inputsFromWS',inputsFromWS);
 inputsFromWS.StorageClass='ExportedGlobal';
@@ -120,7 +132,8 @@ initial_outputsToWS = struct(...
     'P_batt',simOut.outputsToWS.P_FC.Data(end),...
     'SOC',simOut.outputsToWS.SOC.Data(end),...
     'Fuel_flow',simOut.outputsToWS.Fuel_flow.Data(end),...
-    'Stack_efficiency',simOut.outputsToWS.Stack_efficiency.Data(end)); 
+    'Stack_efficiency',simOut.outputsToWS.Stack_efficiency.Data(end),...
+    'Load_profile',simOut.outputsToWS.Load_profile.Data(1)); 
 
 set_param(simulinkModel,'LoadInitialState','on');  % Prevent of being off
 set_param(simulinkModel,'FastRestart','on');
