@@ -22,12 +22,12 @@
 % flags, run it in a new file without the Q-learning interface.
 
 %% Choose model
-model = 'DC_grid_V1';
+model = 'DC_grid_V2';
 
 %% Run simulations from initial state
 
 % Load the initial conditions here. 
-load('initialState_1A.mat');
+load('initialState_2X.mat');
 % Loading the SimState
 currentSimState = initialSimState; 
 
@@ -49,7 +49,7 @@ initialize_model_constants(model,model_constants);
 
 % Duration of the simulation:
 iterationTime = 1.3;
-totalTime = 30;
+totalTime = 100;
 numberIterations = floor(totalTime/iterationTime);
 
 
@@ -86,21 +86,17 @@ for i = 1:numberIterations
     % THE NEW INPUT
     
     % Update the input for next iteration step:
-%     if current_time > 10
-%         inputArray = [0,0];
-%     end
-    %inputArray = [min(1.22,0.1*i),0.5*(sin(0.40*(current_time-iterationTime-pi/4))+1)]; % [0.002*current_time,0.5*(sin(0.15*current_time)+1)];
-    inputArray = [min(1.22,0.1*i),1];
+    inputArray = [min(1.22,0.1*i),4];
     inputsFromWS.Value = inputArray;
     
     % Fill the results of the interation in the structure containing
     % results:
     systemStatesTab.time(i) = current_time;
-    systemStatesTab.Fuel_Cell_power(i)  = simOut.outputsToWS.P_FC.Data(end);
+    systemStatesTab.Fuel_Cell_power(i)  = simOut.outputsToWS.P_FC.Data(end); % Take the last value to see the impact of the input at the end of iteration time.
     systemStatesTab.Battery_power(i) = simOut.outputsToWS.P_batt.Data(end);
     systemStatesTab.SOC_battery(i) = simOut.outputsToWS.SOC.Data(end);
     systemStatesTab.Setpoint_I_FC(i) = inputArray(1);
-    systemStatesTab.Load_profile(i) = inputArray(2);
+    systemStatesTab.Load_profile(i) = simOut.outputsToWS.Load_profile.Data(end); 
 end
 
 t_LearningTotal = cputime - t_LearningStart;
