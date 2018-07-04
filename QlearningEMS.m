@@ -6,7 +6,6 @@
 % minimizing the losses in converters and battery for example) and to
 % increase lifecycle of the system by reducing stress on conponents.
 
-
 % DESCRIPTION:
 % Goal 1: Ensure the power supply at any time (done by the hardware, not
 % related to ML)
@@ -100,8 +99,15 @@ Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 for episodes = 1:maxEpi
     
     % Start point to fill here...
-    Q_state = [0.5,0.5,0.7];
-    I_FC_Q = 0;
+
+    new_Q_state_struct = struct(...
+        'P_FC',initial_outputsToWS.P_FC,...
+        'P_load',initial_outputsToWS.Load_profile,...
+        'SOC',initial_outputsToWS.SOC...
+        );
+    
+    % Convert the structure to array for use in the Q-learning calculation
+    current_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
     
     for g = 1:maxit
         
@@ -109,7 +115,7 @@ for episodes = 1:maxEpi
         % Interpolate the state within our discretization (ONLY for
         % choosing the action. We do not actually change the state by doing
         % this!)
-        [~,sIdx] = min(sum((Q_states - repmat(Q_state,[size(Q_states,1),1])).^2,2));
+        [~,sIdx] = min(sum((Q_states - repmat(current_Q_state_array,[size(Q_states,1),1])).^2,2));
         % sIdx is the index of the state matrix corresponding the best to
         % the current_state.
         
@@ -124,6 +130,7 @@ for episodes = 1:maxEpi
         
         % $$$$$$$$$$$$$$$$$    Run the model    $$$$$$$$$$$$$$$$$$$$$$$$$$$
         % New input for the model:
+        I_FC_Q = 0; % To delete
         dI_FC_Q = actions(1,aIdx_fc);
         I_FC_Q = I_FC_Q + dI_FC_Q;
         if I_FC_Q(1)<0 % Current always flowing out of the FC
@@ -131,16 +138,23 @@ for episodes = 1:maxEpi
         end
         % Updating the state:
         %    run Simulink here for dt
-        new_state = [0.5,0.5,0.7]; %update the state variables
+        new_Q_state_struct = struct(...
+            'P_FC',initial_outputsToWS.P_FC,...
+            'P_load',initial_outputsToWS.Load_profile,...
+            'SOC',initial_outputsToWS.SOC...
+            );
+        
+        % Convert the structure to array for use in the Q-learning calculation
+        new_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
         
         % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-        reward = 1; % rewardFunc(new_state);
+        reward = 1; % rewardFunc(new_Q_state);
         
         % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
         % NB: no end condition of the episode here, because it is a
         % tracking problem.
-        [~,snewIdx] = min(sum((Q_states - repmat(new_state,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
-        Q_state = new_state;
+        [~,snewIdx] = min(sum((Q_states - repmat(new_Q_state_array,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
+        current_Q_state_array = new_Q_state_array;
         
         if episodes ~= maxEpi % On the last iteration, stop learning and just execute. Otherwise...
             % Update Q
