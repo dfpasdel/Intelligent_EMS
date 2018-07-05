@@ -269,9 +269,9 @@ for episodes = 1:maxEpi
     ratioExploitation = (nExploitation/maxit)*100;
     fprintf(resultsReport,'Exploitation actions: %3.2f%% \r\n',ratioExploitation);
     fprintf(resultsReport,'Simulink time: %5.1fs \r\n',t_SimulinkTotal);
-    fprintf(resultsReport,'Learning time (Simulink + Q-process): %5.1fs \r\n',t_LearningTotal);
+    fprintf(resultsReport,'Episode duration (Simulink + Q-process): %5.1fs \r\n',t_LearningTotal);
     ratioTime = (t_SimulinkTotal/t_LearningTotal)*100;
-    fprintf(resultsReport,'Ratio Simulink/Learning time: %3.2f%% \r\n',ratioTime);
+    fprintf(resultsReport,'Ratio Simulink/Total time for episode: %3.2f%% \r\n',ratioTime);
     fprintf(resultsReport,'_______________\r\n\r\n');
     
     % Plotting the result of the episode
@@ -294,13 +294,17 @@ for episodes = 1:maxEpi
     legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
     drawnow
     saveas(fig,['episode' num2str(episodes) '.bmp']);
+    close(fig);
     
     
 end % end episodes counting
 
 % Plot the evolution of the duration episides duration:
-figure(maxEpi+1)
+fig = figure(maxEpi+1);
 plot(epiDuration);
+saveas(fig,'Episodes_duration.jpg');
+close(fig);
+
 
 % Close the text file
 fclose(resultsReport);
