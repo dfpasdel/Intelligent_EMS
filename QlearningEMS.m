@@ -100,7 +100,7 @@ Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 model = 'DC_grid_V2';
 
 % Set the (approximate duration of one episode:
-totalTime = 1500;
+totalTime = 100;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
@@ -114,7 +114,8 @@ systemStatesTab = struct(...
     ,'P_Batt',zeros(maxit,1)...
     ,'SOC_battery',zeros(maxit,1)...
     ,'Load_profile',zeros(maxit,1)...
-    ,'Setpoint_I_FC',zeros(maxit,1));
+    ,'Setpoint_I_FC',zeros(maxit,1)...
+    ,'isExploitationAction',zeros(maxit,1));
 
 
 
@@ -189,6 +190,7 @@ for episodes = 1:maxEpi
                 && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
                 && not(isequal(Q(sIdx,:),[0 0 0]))   % Take a random action when all the coefficients are equals
             [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
+            systemStatesTab.isExploitationAction(g) = 0.2;
         % OR 2) Pick a random action (EXPLORATION)  
         else
             aIdx_fc = randi(size(actions,2),1); % Random action for FC!
@@ -270,7 +272,9 @@ for episodes = 1:maxEpi
     legend('Power FC','Power Batt');
     subplot(312);
     plot(systemStatesTab.time,systemStatesTab.SOC_battery,'*-');
-    legend('SOC');
+    hold on
+    bar(systemStatesTab.time,systemStatesTab.isExploitationAction);
+    legend('SOC','Exploitation');
     subplot(313);
     plot(systemStatesTab.time,systemStatesTab.Setpoint_I_FC,'o-');
     hold on
