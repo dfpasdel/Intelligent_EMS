@@ -37,17 +37,18 @@ SOC_Q = single(linspace(0.5,0.9,6)); % Battery state of charge
 % Q-learning calculation
 
 % Generate a state list
-Q_states=zeros(length(P_FC_Q)*length(P_load_Q)*length(SOC_Q),3,'single'); % 3 Column matrix of all possible combinations of the discretized state.
+% 3 Column matrix of all possible combinations of the discretized state.
+Q_states=zeros(length(P_FC_Q)*length(P_load_Q)*length(SOC_Q),3,'single'); 
 % 'single' precision here
 index=1;
 for j=1:length(P_FC_Q)
     for k = 1:length(P_load_Q)
-        for l = 1:length(SOC_Q)  
+        for l = 1:length(SOC_Q)
             Q_states(index,1)=P_FC_Q(j);
             Q_states(index,2)=P_load_Q(k);
-            Q_states(index,3)=SOC_Q(l);      
+            Q_states(index,3)=SOC_Q(l);
             index=index+1;
-        end        
+        end
     end
 end
 
@@ -67,11 +68,11 @@ actions=[0 -dI_FC_Q dI_FC_Q];
 % #########################################################################
 
 % Confidence in new trials?
-learnRate = 0.99; 
+learnRate = 0.99;
 
 % Exploration vs exploitation
 epsilon = 0.5; % Initial value
-epsilonDecay = 0.995; % Decay factor per iteration
+epsilonDecay = 0.997; % Decay factor per iteration
 
 % Future vs present value
 discount = 0.9;
@@ -81,7 +82,7 @@ successRate = 1; % No noise
 
 % Starting point : to be defined
 
-% How many episodes of testing ? (i.e. how many courses the system attend?) 
+% How many episodes of testing ? (i.e. how many courses the system attend?)
 maxEpi = 1;
 
 % % How long are the episodes ? (i.e. how long are the courses?)
@@ -89,7 +90,7 @@ maxEpi = 1;
 
 % Q matrix:
 % Lines: states | Rows: actions
-Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]); 
+Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 % Q elements are stored on 32bits (allow Qfactors between 2^-126 and 2^127)
 
 % #########################################################################
@@ -99,7 +100,7 @@ Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 % Choose model
 model = 'DC_grid_V2';
 
-% Set the (approximate duration of one episode:
+% Set the (approximate) duration of one episode:
 totalTime = 100;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
@@ -116,8 +117,11 @@ systemStatesTab = struct(...
     ,'Load_profile',zeros(maxit,1)...
     ,'Setpoint_I_FC',zeros(maxit,1)...
     ,'isExploitationAction',zeros(maxit,1));
+% NOTE: This structure is overwritten each iteration.
 
-
+% Initialize a .txt file containing relevant datas
+delete results.txt
+resultsAsText = fopen('results.txt','w');
 
 
 % #########################################################################
@@ -169,8 +173,9 @@ for episodes = 1:maxEpi
     % Convert the structure to array for use in the Q-learning calculation
     current_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
     
-    % Number of random actions:
-    nRandom = 0;
+    % Number of exploitation actions (non-random actions):
+    nExploitation = 0;
+    
     
     for g = 1:maxit
         fprintf('Episode n.%i, iteration n.%i/%i\n',episodes,g,maxit);
@@ -184,18 +189,20 @@ for episodes = 1:maxEpi
         % the current_state.
         
         % $$$$$$$$$$$$$$$$$    Choose an action    $$$$$$$$$$$$$$$$$$$$$$$$
-        % EITHER 1) pick the best action according the Q matrix (EXPLOITATION). 
+        % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).
         fprintf('epsilon = %2.2f\n',epsilon);
         if rand()>epsilon... % Exploit
                 && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
                 && not(isequal(Q(sIdx,:),[0 0 0]))   % Take a random action when all the coefficients are equals
+            
             [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
             systemStatesTab.isExploitationAction(g) = 0.2;
-        % OR 2) Pick a random action (EXPLORATION)  
+            nExploitation = nExploitation + 1;
+            fprintf(resultsAsText,'E %i \r\n',nExploitation);
+        % OR 2) Pick a random action (EXPLORATION)
         else
             aIdx_fc = randi(size(actions,2),1); % Random action for FC!
-            disp('random action');
-            nRandom = nRandom + 1;
+            systemStatesTab.isExploitationAction(g) = 0;         
         end
         
         % $$$$$$$$$$$$$$$$$    Run the model    $$$$$$$$$$$$$$$$$$$$$$$$$$$
@@ -229,7 +236,7 @@ for episodes = 1:maxEpi
         new_Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
         new_Q_state_struct.P_load = simOut.outputsToWS.Load_profile.Data(end);
         new_Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
-
+        
         % Convert the structure to array for use in the Q-learning calculation
         new_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
         
@@ -242,26 +249,28 @@ for episodes = 1:maxEpi
         [~,snewIdx] = min(sum((Q_states - repmat(new_Q_state_array,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
         current_Q_state_array = new_Q_state_array;
         
-        %if episodes ~= maxEpi % On the last iteration, stop learning and just execute. Otherwise...
-            % Update Q
-            Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(max(Q(snewIdx,:))) - Q(sIdx,aIdx_fc) );
-        %end
+        % Update Q
+        Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(max(Q(snewIdx,:))) - Q(sIdx,aIdx_fc) );
         
         % Decay the odds of picking a random action vs picking the
         % estimated "best" action. I.e. we're becoming more confident in
         % our learned Q.
         epsilon = epsilon*epsilonDecay;
-           
+        
+        
+        
     end % end iterations counting for single episode
     t_LearningTotal = cputime - t_LearningStart;
     
     % Statistics
-    fprintf('Percentage of random actions: %3.2f\n',nRandom/maxit*100);
-    fprintf('Simulink time: %5.1f\n',t_SimulinkTotal);
-    fprintf('Learning time (Simulink + Q-process): %5.1f\n',t_LearningTotal);
-    ratio = (t_SimulinkTotal/t_LearningTotal)*100;
-    fprintf('Ratio Simulink/Learning time (percent): %3.2f\n',ratio);
-    
+    fprintf(resultsAsText,'Episode %i: \r\n',episodes);
+    ratioExploitation = (nExploitation/maxit)*100;
+    fprintf(resultsAsText,'Exploitation actions: %3.2f%% \r\n',ratioExploitation);
+    fprintf(resultsAsText,'Simulink time: %5.1fs \r\n',t_SimulinkTotal);
+    fprintf(resultsAsText,'Learning time (Simulink + Q-process): %5.1fs \r\n',t_LearningTotal);
+    ratioTime = (t_SimulinkTotal/t_LearningTotal)*100;
+    fprintf(resultsAsText,'Ratio Simulink/Learning time: %3.2f%% \r\n',ratioTime);
+    fprintf(resultsAsText,'_______________\r\n\r\n');
     
     % Plotting the result of the episode
     figure(episodes)
@@ -269,22 +278,25 @@ for episodes = 1:maxEpi
     plot(systemStatesTab.time,systemStatesTab.Fuel_Cell_power,'o-');
     hold on
     plot(systemStatesTab.time,systemStatesTab.Battery_power,'.-');
-    legend('Power FC','Power Batt');
+    legend('P FC (p.u.)','P Batt (p.u.)','Location','southwest');
     subplot(312);
     plot(systemStatesTab.time,systemStatesTab.SOC_battery,'*-');
     hold on
     bar(systemStatesTab.time,systemStatesTab.isExploitationAction);
-    legend('SOC','Exploitation');
+    legend('SOC','Exploitation','Location','southwest');
     subplot(313);
     plot(systemStatesTab.time,systemStatesTab.Setpoint_I_FC,'o-');
     hold on
     plot(systemStatesTab.time,systemStatesTab.Load_profile,'.-');
     %ylim([0,1.5]);
-    legend('I_FC','Load profile');
+    legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
+    drawnow
+    
     
     
 end % end episodes counting
 
+fclose(resultsAsText);
 
 %%
 function initialize_model(model)
@@ -293,9 +305,9 @@ function initialize_model(model)
 % This function aim to reduce the time of execution of the simulation by
 % setting 'FastRestart' i.e. no re-compilling of the model between the
 % runs.
-% NB: When the initialize function is called, the initial state must be 
+% NB: When the initialize function is called, the initial state must be
 % known
-% FREQUENCY OF EXECUTION: 
+% FREQUENCY OF EXECUTION:
 % Once at the beginning of a multiple run simulation
 % EXAMPLE OF USE:
 % See example and test in the script SimState_testing_and_example
