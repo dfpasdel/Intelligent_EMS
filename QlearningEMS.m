@@ -72,7 +72,7 @@ learnRate = 0.99;
 
 % Exploration vs exploitation
 epsilon = 0.5; % Initial value
-epsilonDecay = 0.997; % Decay factor per iteration
+epsilonDecay = 0.99992; % Decay factor per iteration
 
 % Future vs present value
 discount = 0.9;
@@ -177,6 +177,8 @@ for episodes = 1:maxEpi
     % Number of exploitation actions (non-random actions):
     nExploitation = 0;
     
+    % Initialize boolean for the case SOC < 5%
+    failure = 0;
     
     for g = 1:maxit
         fprintf('Episode n.%i, iteration n.%i/%i\n',episodes,g,maxit);
@@ -257,22 +259,32 @@ for episodes = 1:maxEpi
         % our learned Q.
         epsilon = epsilon*epsilonDecay;
         
+        if simOut.outputsToWS.SOC.Data(end) < 0.05
+            failure = 1;
+            break
+        end
+        
         
         
     end % end iterations counting for single episode
 
     
     % Analysis of the performance
-    t_LearningTotal = cputime - t_LearningStart;
-    epiDuration = [epiDuration t_LearningTotal];
-    fprintf(resultsReport,'Episode %i: \r\n',episodes);
-    ratioExploitation = (nExploitation/maxit)*100;
-    fprintf(resultsReport,'Exploitation actions: %3.2f%% \r\n',ratioExploitation);
-    fprintf(resultsReport,'Simulink time: %5.1fs \r\n',t_SimulinkTotal);
-    fprintf(resultsReport,'Episode duration (Simulink + Q-process): %5.1fs \r\n',t_LearningTotal);
-    ratioTime = (t_SimulinkTotal/t_LearningTotal)*100;
-    fprintf(resultsReport,'Ratio Simulink/Total time for episode: %3.2f%% \r\n',ratioTime);
-    fprintf(resultsReport,'_______________\r\n\r\n');
+    if ~failure
+        t_LearningTotal = cputime - t_LearningStart;
+        epiDuration = [epiDuration t_LearningTotal];
+        fprintf(resultsReport,'Episode %i: \r\n',episodes);
+        ratioExploitation = (nExploitation/maxit)*100;
+        fprintf(resultsReport,'Exploitation actions: %3.2f%% \r\n',ratioExploitation);
+        fprintf(resultsReport,'Simulink time: %5.1fs \r\n',t_SimulinkTotal);
+        fprintf(resultsReport,'Episode duration (Simulink + Q-process): %5.1fs \r\n',t_LearningTotal);
+        ratioTime = (t_SimulinkTotal/t_LearningTotal)*100;
+        fprintf(resultsReport,'Ratio Simulink/Total time for episode: %3.2f%% \r\n',ratioTime);
+        fprintf(resultsReport,'_______________\r\n\r\n');
+    else
+        fprintf(resultsReport,'Episode %i: \r\n',episodes);
+        fprintf(resultsReport,'Failure, SOC too close to 0');
+    end
     
     % Plotting the result of the episode
     fig = figure(episodes);
@@ -305,6 +317,8 @@ plot(epiDuration);
 saveas(fig,'Episodes_duration.jpg');
 close(fig);
 
+% Save the Q-matrix
+save('Final_Q_matrix.mat','Q');
 
 % Close the text file
 fclose(resultsReport);
