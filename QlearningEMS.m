@@ -80,10 +80,8 @@ discount = 0.9;
 % Inject some noise?
 successRate = 1; % No noise
 
-% Starting point : to be defined
-
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 1;
+maxEpi = 5;
 
 % % How long are the episodes ? (i.e. how long are the courses?)
 % maxit = 100;
@@ -101,7 +99,7 @@ Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 model = 'DC_grid_V2';
 
 % Set the (approximate) duration of one episode:
-totalTime = 100;
+totalTime = 10;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
@@ -121,7 +119,10 @@ systemStatesTab = struct(...
 
 % Initialize a .txt file containing relevant datas
 delete results.txt
-resultsAsText = fopen('results.txt','w');
+resultsReport = fopen('results.txt','w');
+
+% Array containing the episode duration over simulation
+epiDuration = [];
 
 
 % #########################################################################
@@ -198,7 +199,6 @@ for episodes = 1:maxEpi
             [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
             systemStatesTab.isExploitationAction(g) = 0.2;
             nExploitation = nExploitation + 1;
-            fprintf(resultsAsText,'E %i \r\n',nExploitation);
         % OR 2) Pick a random action (EXPLORATION)
         else
             aIdx_fc = randi(size(actions,2),1); % Random action for FC!
@@ -260,43 +260,50 @@ for episodes = 1:maxEpi
         
         
     end % end iterations counting for single episode
-    t_LearningTotal = cputime - t_LearningStart;
+
     
-    % Statistics
-    fprintf(resultsAsText,'Episode %i: \r\n',episodes);
+    % Analysis of the performance
+    t_LearningTotal = cputime - t_LearningStart;
+    epiDuration = [epiDuration t_LearningTotal];
+    fprintf(resultsReport,'Episode %i: \r\n',episodes);
     ratioExploitation = (nExploitation/maxit)*100;
-    fprintf(resultsAsText,'Exploitation actions: %3.2f%% \r\n',ratioExploitation);
-    fprintf(resultsAsText,'Simulink time: %5.1fs \r\n',t_SimulinkTotal);
-    fprintf(resultsAsText,'Learning time (Simulink + Q-process): %5.1fs \r\n',t_LearningTotal);
+    fprintf(resultsReport,'Exploitation actions: %3.2f%% \r\n',ratioExploitation);
+    fprintf(resultsReport,'Simulink time: %5.1fs \r\n',t_SimulinkTotal);
+    fprintf(resultsReport,'Learning time (Simulink + Q-process): %5.1fs \r\n',t_LearningTotal);
     ratioTime = (t_SimulinkTotal/t_LearningTotal)*100;
-    fprintf(resultsAsText,'Ratio Simulink/Learning time: %3.2f%% \r\n',ratioTime);
-    fprintf(resultsAsText,'_______________\r\n\r\n');
+    fprintf(resultsReport,'Ratio Simulink/Learning time: %3.2f%% \r\n',ratioTime);
+    fprintf(resultsReport,'_______________\r\n\r\n');
     
     % Plotting the result of the episode
-    figure(episodes)
+    fig = figure(episodes);
     subplot(311)
-    plot(systemStatesTab.time,systemStatesTab.Fuel_Cell_power,'o-');
+    plot(systemStatesTab.time,systemStatesTab.Fuel_Cell_power,'.-');
     hold on
     plot(systemStatesTab.time,systemStatesTab.Battery_power,'.-');
     legend('P FC (p.u.)','P Batt (p.u.)','Location','southwest');
     subplot(312);
-    plot(systemStatesTab.time,systemStatesTab.SOC_battery,'*-');
+    plot(systemStatesTab.time,systemStatesTab.SOC_battery,'.-');
     hold on
     bar(systemStatesTab.time,systemStatesTab.isExploitationAction);
     legend('SOC','Exploitation','Location','southwest');
     subplot(313);
-    plot(systemStatesTab.time,systemStatesTab.Setpoint_I_FC,'o-');
+    plot(systemStatesTab.time,systemStatesTab.Setpoint_I_FC,'.-');
     hold on
     plot(systemStatesTab.time,systemStatesTab.Load_profile,'.-');
     %ylim([0,1.5]);
     legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
     drawnow
-    
+    saveas(fig,['episode' num2str(episodes) '.bmp']);
     
     
 end % end episodes counting
 
-fclose(resultsAsText);
+% Plot the evolution of the duration episides duration:
+figure(maxEpi+1)
+plot(epiDuration);
+
+% Close the text file
+fclose(resultsReport);
 
 %%
 function initialize_model(model)
