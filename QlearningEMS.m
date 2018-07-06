@@ -91,6 +91,9 @@ maxEpi = 5;
 Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 % Q elements are stored on 32bits (allow Qfactors between 2^-126 and 2^127)
 
+% Load the functions (polynoms) calculating the rewards
+load('rewardCurveSOC.mat')
+
 % #########################################################################
 % ################        INITIALIZE THE MODEL        #####################
 % #########################################################################
@@ -252,14 +255,15 @@ for episodes = 1:maxEpi
         current_Q_state_array = new_Q_state_array;
         
         % Update Q
-        Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(max(Q(snewIdx,:))) - Q(sIdx,aIdx_fc) );
+        Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) );
         
         % Decay the odds of picking a random action vs picking the
         % estimated "best" action. I.e. we're becoming more confident in
         % our learned Q.
         epsilon = epsilon*epsilonDecay;
         
-        if simOut.outputsToWS.SOC.Data(end) < 0.05
+        % Break the iteration if SOC < 10%
+        if simOut.outputsToWS.SOC.Data(end) < 0.1
             failure = 1;
             break
         end
@@ -276,6 +280,7 @@ for episodes = 1:maxEpi
         fprintf(resultsReport,'Episode %i: \r\n',episodes);
         ratioExploitation = (nExploitation/maxit)*100;
         fprintf(resultsReport,'Exploitation actions: %3.2f%% \r\n',ratioExploitation);
+        fprintf(resultsReport,'Epsilon (end of iteration): %2.3f \r\n',epsilon);
         fprintf(resultsReport,'Simulink time: %5.1fs \r\n',t_SimulinkTotal);
         fprintf(resultsReport,'Episode duration (Simulink + Q-process): %5.1fs \r\n',t_LearningTotal);
         ratioTime = (t_SimulinkTotal/t_LearningTotal)*100;
@@ -305,8 +310,11 @@ for episodes = 1:maxEpi
     %ylim([0,1.5]);
     legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
     drawnow
-    saveas(fig,['episode' num2str(episodes) '.bmp']);
+    saveas(fig,['episode' num2str(episodes) '.jpg']);
     close(fig);
+    
+    % Save the Q-matrix
+    save('Final_Q_matrix.mat','Q');
     
     
 end % end episodes counting
@@ -316,9 +324,6 @@ fig = figure(maxEpi+1);
 plot(epiDuration);
 saveas(fig,'Episodes_duration.jpg');
 close(fig);
-
-% Save the Q-matrix
-save('Final_Q_matrix.mat','Q');
 
 % Close the text file
 fclose(resultsReport);
