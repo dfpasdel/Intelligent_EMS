@@ -81,7 +81,7 @@ discount = 0.9;
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 3;
+maxEpi = 5;
 
 % % How long are the episodes ? (i.e. how long are the courses?)
 % maxit = 100;
@@ -102,7 +102,7 @@ load('rewardCurveSOC.mat')
 model = 'DC_grid_V2';
 
 % Set the (approximate) duration of one episode:
-totalTime = 10;
+totalTime = 30;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
@@ -126,10 +126,11 @@ resultsReport = fopen('results.txt','w');
 fprintf(resultsReport,[datestr(now) '\r\n']);
 fprintf(resultsReport,['Model used: ' model '\r\n']);
 fprintf(resultsReport,'Learning rate %2.2f \r\n', learnRate);
-fprintf(resultsReport,'Epsilon start: %2.2f, eprilonDecay %2.7f\r\n',epsilon,epsilonDecay);
+fprintf(resultsReport,'Epsilon start: %2.2f, epsilonDecay %2.7f\r\n',epsilon,epsilonDecay);
 fprintf(resultsReport,'Discount: %3.3f\r\n', discount);
 fprintf(resultsReport,'Number of episodes planned: %i\r\n', maxEpi);
 fprintf(resultsReport,'Total time per episode: %5.1fs, Iteration time: %3.2fs\r\n',totalTime,iterationTime);
+fprintf(resultsReport,'_______________\r\n\r\n');
 
 % Array containing the episode duration over simulation
 epiDuration = [];
@@ -203,7 +204,7 @@ for episodes = 1:maxEpi
         
         % $$$$$$$$$$$$$$$$$    Choose an action    $$$$$$$$$$$$$$$$$$$$$$$$
         % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).
-        fprintf('epsilon = %2.2f\n',epsilon);
+        
         if rand()>epsilon... % Exploit
                 && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
                 && not(isequal(Q(sIdx,:),[0 0 0]))   % Take a random action when all the coefficients are equals
@@ -263,6 +264,9 @@ for episodes = 1:maxEpi
         
         % Update Q
         Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) );
+        fprintf('State index %i\n',sIdx);
+        fprintf('Reward %2.2f\n',reward);
+        fprintf('Q(sIdx,aIdx_fc) %3.2f\n',Q(sIdx,aIdx_fc));
         
         % Decay the odds of picking a random action vs picking the
         % estimated "best" action. I.e. we're becoming more confident in
@@ -298,7 +302,8 @@ for episodes = 1:maxEpi
         fprintf(resultsReport,'_______________\r\n\r\n');
     else
         fprintf(resultsReport,'Episode %i: \r\n',episodes);
-        fprintf(resultsReport,'Failure, SOC too close to 0');
+        fprintf(resultsReport,'Failure, SOC too close to 0\r\n');
+        fprintf(resultsReport,'_______________\r\n\r\n');
     end
     
     % Plotting the result of the episode
@@ -324,8 +329,7 @@ for episodes = 1:maxEpi
     close(fig);
     
     % Save the Q-matrix
-    save('Final_Q_matrix.mat','Q');
-    
+    save(['Q_matrix_episode' num2str(episodes) '.mat'],'Q');
     
 end % end episodes counting
 
@@ -352,7 +356,7 @@ function initialize_model(model)
 % EXAMPLE OF USE:
 % See example and test in the script SimState_testing_and_example
 
-open_system(model);
+open_system(model,'loadonly');
 set_param(model,'FastRestart','off');
 set_param(model,'SaveFinalState','on','FinalStateName','myOperPoint',...
     'SaveCompleteFinalSimState','on','LoadInitialState','on');
