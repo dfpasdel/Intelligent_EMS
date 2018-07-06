@@ -13,4 +13,4 @@ Y = polyval(rewardCurveSOC,X);
 %figure(100)
 %plot(X,Y)
 
-save('rewardCurveSOC.mat',rewardCurveSOC);
+save('rewardCurveSOC.mat','rewardCurveSOC');
