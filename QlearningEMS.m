@@ -81,7 +81,7 @@ discount = 0.9;
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 4;
+maxEpi = 1;
 
 % % How long are the episodes ? (i.e. how long are the courses?)
 % maxit = 100;
@@ -108,7 +108,7 @@ maxit = floor(totalTime/iterationTime);
 
 % Empty structure containing the results of one iteration:
 systemStatesTab = struct(...
-    'time',zeros(maxit,1)...
+    'time',transpose(iterationTime:iterationTime:maxit*iterationTime)...
     ,'P_FC',zeros(maxit,1)...
     ,'P_Batt',zeros(maxit,1)...
     ,'SOC_battery',zeros(maxit,1)...
@@ -234,14 +234,10 @@ for episodes = 1:maxEpi
         [currentSimState,simOut] = run_simulation(model,currentSimState,iterationTime);
         t_SimulinkTotal = t_SimulinkTotal + cputime - t_SimulinkIterationStart;
         
-        % Get the current time of the simulation:
-        current_time = currentSimState.snapshotTime - t_init;
-        
         % Fill the results of the iteration in the structure containing
         % results:
-        systemStatesTab.time(g) = current_time;
-        systemStatesTab.Fuel_Cell_power(g)  = simOut.outputsToWS.P_FC.Data(end); % Take the last value to see the impact of the input at the end of iteration time.
-        systemStatesTab.Battery_power(g) = simOut.outputsToWS.P_batt.Data(end);
+        systemStatesTab.P_FC(g)  = simOut.outputsToWS.P_FC.Data(end); % Take the last value to see the impact of the input at the end of iteration time.
+        systemStatesTab.P_Batt(g) = simOut.outputsToWS.P_batt.Data(end);
         systemStatesTab.SOC_battery(g) = simOut.outputsToWS.SOC.Data(end);
         systemStatesTab.Setpoint_I_FC(g) = inputArray(1);
         systemStatesTab.Load_profile(g) = simOut.outputsToWS.Load_profile.Data(end);
@@ -318,9 +314,9 @@ for episodes = 1:maxEpi
     % Plotting the result of the episode
     fig = figure(episodes);
     subplot(311)
-    plot(systemStatesTab.time,systemStatesTab.Fuel_Cell_power,'.-');
+    plot(systemStatesTab.time,systemStatesTab.P_FC,'.-');
     hold on
-    plot(systemStatesTab.time,systemStatesTab.Battery_power,'.-');
+    plot(systemStatesTab.time,systemStatesTab.P_Batt,'.-');
     legend('P FC (p.u.)','P Batt (p.u.)','Location','southwest');
     subplot(312);
     plot(systemStatesTab.time,systemStatesTab.SOC_battery,'.-');
