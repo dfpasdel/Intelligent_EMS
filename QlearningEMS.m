@@ -30,22 +30,22 @@ clc
 % ################                STATES             ######################
 % #########################################################################
 
-P_FC_Q = single(linspace(0,1.5,16)); % Fuel-cell power
-P_load_Q = single(linspace(0,1.5,16)); % Load power
-SOC_Q = single(linspace(0.5,0.9,6)); % Battery state of charge
+P_FC_Q = single(linspace(0,1.5,1)); % Fuel-cell power
+rateSOC_Q = single(linspace(-1,1,2)); % Is the power of the load increasing or decreasing
+SOC_Q = single(linspace(0.5,0.9,3)); % Battery state of charge
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
 
 % Generate a state list
 % 3 Column matrix of all possible combinations of the discretized state.
-Q_states=zeros(length(P_FC_Q)*length(P_load_Q)*length(SOC_Q),3,'single'); 
+Q_states=zeros(length(P_FC_Q)*length(rateSOC_Q)*length(SOC_Q),3,'single'); 
 % 'single' precision here
 index=1;
 for j=1:length(P_FC_Q)
-    for k = 1:length(P_load_Q)
+    for k = 1:length(rateSOC_Q)
         for l = 1:length(SOC_Q)
             Q_states(index,1)=P_FC_Q(j);
-            Q_states(index,2)=P_load_Q(k);
+            Q_states(index,2)=rateSOC_Q(k);
             Q_states(index,3)=SOC_Q(l);
             index=index+1;
         end
@@ -81,7 +81,7 @@ discount = 0.9;
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 5;
+maxEpi = 4;
 
 % % How long are the episodes ? (i.e. how long are the courses?)
 % maxit = 100;
@@ -91,9 +91,6 @@ maxEpi = 5;
 Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 % Q elements are stored on 32bits (allow Qfactors between 2^-126 and 2^127)
 
-% Load the functions (polynoms) calculating the rewards
-load('rewardCurveSOC.mat')
-
 % #########################################################################
 % ################        INITIALIZE THE MODEL        #####################
 % #########################################################################
@@ -102,7 +99,7 @@ load('rewardCurveSOC.mat')
 model = 'DC_grid_V2';
 
 % Set the (approximate) duration of one episode:
-totalTime = 30;
+totalTime = 20;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
@@ -176,19 +173,23 @@ for episodes = 1:maxEpi
     initialize_model(model);
     
     % Starting point
-    new_Q_state_struct = struct(...
+    current_Q_state_struct = struct(...
         'P_FC',initial_outputsToWS.P_FC,...
-        'P_load',initial_outputsToWS.Load_profile,...
-        'SOC',initial_outputsToWS.SOC...
-        );
+        'SOC',initial_outputsToWS.SOC,...
+        'rateSOC',1);
+    % NOTE: It doesn't really matter if rateSOC is initialized with 1 or -1 
     
+    % Initialize the Q state to be filled after iteration
+    new_Q_state_struct = current_Q_state_struct;
+    
+     
     % Convert the structure to array for use in the Q-learning calculation
-    current_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
+    current_Q_state_array = transpose(cell2mat(struct2cell(current_Q_state_struct)));
     
     % Number of exploitation actions (non-random actions):
     nExploitation = 0;
     
-    % Initialize boolean for the case SOC < 5%
+    % Initialize boolean for the case SOC < 10%
     failure = 0;
     
     for g = 1:maxit
@@ -247,20 +248,25 @@ for episodes = 1:maxEpi
         
         % Fill the Q-learning state
         new_Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
-        new_Q_state_struct.P_load = simOut.outputsToWS.Load_profile.Data(end);
         new_Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
+        if new_Q_state_struct.SOC > current_Q_state_struct.SOC % SOC is increasing
+            current_Q_state_struct.rateSOC = 1;
+        else % SOC is decreasing
+            current_Q_state_struct.rateSOC = -1;
+        end
         
         % Convert the structure to array for use in the Q-learning calculation
         new_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
         
         % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-        reward = getReward(new_Q_state_struct,rewardCurveSOC);
+        reward = getReward(new_Q_state_struct);
         
         % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
         % NB: no end condition of the episode here, because it is a
         % tracking problem.
         [~,snewIdx] = min(sum((Q_states - repmat(new_Q_state_array,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
-        current_Q_state_array = new_Q_state_array;
+        
+
         
         % Update Q
         Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) );
@@ -278,6 +284,9 @@ for episodes = 1:maxEpi
             failure = 1;
             break
         end
+        
+        % Update the Q state for next iteration
+        current_Q_state_struct = new_Q_state_struct;
         
         
         
