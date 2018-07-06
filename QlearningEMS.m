@@ -81,7 +81,7 @@ discount = 0.9;
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 5;
+maxEpi = 3;
 
 % % How long are the episodes ? (i.e. how long are the courses?)
 % maxit = 100;
@@ -123,6 +123,13 @@ systemStatesTab = struct(...
 % Initialize a .txt file containing relevant datas
 delete results.txt
 resultsReport = fopen('results.txt','w');
+fprintf(resultsReport,[datestr(now) '\r\n']);
+fprintf(resultsReport,['Model used: ' model '\r\n']);
+fprintf(resultsReport,'Learning rate %2.2f \r\n', learnRate);
+fprintf(resultsReport,'Epsilon start: %2.2f, eprilonDecay %2.7f\r\n',epsilon,epsilonDecay);
+fprintf(resultsReport,'Discount: %3.3f\r\n', discount);
+fprintf(resultsReport,'Number of episodes planned: %i\r\n', maxEpi);
+fprintf(resultsReport,'Total time per episode: %5.1fs, Iteration time: %3.2fs\r\n',totalTime,iterationTime);
 
 % Array containing the episode duration over simulation
 epiDuration = [];
@@ -246,7 +253,7 @@ for episodes = 1:maxEpi
         new_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
         
         % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-        reward = getReward(new_Q_state_struct);
+        reward = getReward(new_Q_state_struct,rewardCurveSOC);
         
         % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
         % NB: no end condition of the episode here, because it is a
@@ -272,6 +279,9 @@ for episodes = 1:maxEpi
         
     end % end iterations counting for single episode
 
+    % Close the model without saving it
+    set_param(model,'FastRestart','off');
+    close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
     
     % Analysis of the performance
     if ~failure
