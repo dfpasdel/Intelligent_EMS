@@ -1,15 +1,15 @@
-function [r] = getReward(S)
+function [r] = getReward(S,SOCpolynom)
 % DESCRIPTION:
 % Takes the Q-state as input and returns a reward as output.
 % NOTE: 
 % The Q-state is passed as a structure
+%
+% INPUTS:
+% - Structure containing the current Qstate
+% - Polynom defining the reward depending on the value of the Qstate (the
+%   polynom is generated in a separate script and loaded once in the main 
+%   script)
 
 soc = S.SOC;
-if (0.65 <= soc) && (soc <= 0.75)
-    r = 1;
-elseif (soc <= 0.25)
-    r = -1;
-else
-    r = 0;
-end 
+r = polyval(SOCpolynom,soc);
 end
