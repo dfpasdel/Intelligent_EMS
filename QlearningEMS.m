@@ -30,9 +30,9 @@ clc
 % ################                STATES             ######################
 % #########################################################################
 
-P_FC_Q = single(linspace(0,1.5,1)); % Fuel-cell power
-rateSOC_Q = single(linspace(-1,1,2)); % Is the power of the load increasing or decreasing
-SOC_Q = single(linspace(0.5,0.9,3)); % Battery state of charge
+P_FC_Q = single(linspace(0,0,1)); % Fuel-cell power (not considered)
+SOC_Q = single(linspace(0,1,21)); % Battery state of charge
+rateSOC_Q = single(linspace(0,0,1)); % Not considering the rate of change of the SOC
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
 
@@ -81,7 +81,7 @@ discount = 0.9;
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 25;
+maxEpi = 2;
 
 % % How long are the episodes ? (i.e. how long are the courses?)
 % maxit = 100;
@@ -89,6 +89,9 @@ maxEpi = 25;
 % Q matrix:
 % Lines: states | Rows: actions
 Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
+
+% Load the functions (polynoms) calculating the rewards
+load('rewardCurveSOC.mat')
 
 % #########################################################################
 % ################        INITIALIZE THE MODEL        #####################
@@ -98,7 +101,7 @@ Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 model = 'DC_grid_V2';
 
 % Set the (approximate) duration of one episode:
-totalTime = 2000;
+totalTime = 20;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
@@ -174,7 +177,7 @@ for episodes = 1:maxEpi
         'P_FC',initial_outputsToWS.P_FC,...
         'SOC',initial_outputsToWS.SOC,...
         'rateSOC',0);
-    % NOTE: The init value for rateSOC doesnt' matter. 
+    % NOTE: The init value for rateSOC doesn't matter. 
     
     % Initialize the Q state to be filled after iteration
     new_Q_state_struct = current_Q_state_struct;
@@ -197,7 +200,6 @@ for episodes = 1:maxEpi
         % choosing the action. We do not actually change the state by doing
         % this!)
         [~,sIdx] = min(sum((Q_states - repmat(current_Q_state_array,[size(Q_states,1),1])).^2,2));
-        fprintf('index: %i\n',sIdx);
         % sIdx is the index of the state matrix corresponding the best to
         % the current_state.
         
@@ -241,19 +243,15 @@ for episodes = 1:maxEpi
         systemStatesTab.Load_profile(g) = simOut.outputsToWS.Load_profile.Data(end);
         
         % Fill the Q-learning state
-        new_Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
+        % new_Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
         new_Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
-        if new_Q_state_struct.SOC >= current_Q_state_struct.SOC % SOC is increasing
-            new_Q_state_struct.rateSOC = 1;
-        else % SOC is decreasing
-            new_Q_state_struct.rateSOC = -1;
-        end
+
         
         % Convert the structure to array for use in the Q-learning calculation
         new_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
         
         % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-        reward = getReward(new_Q_state_struct);
+        reward = getReward(new_Q_state_struct,rewardCurveSOC);
         
         % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
         % NB: no end condition of the episode here, because it is a
