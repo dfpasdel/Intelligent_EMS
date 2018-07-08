@@ -31,7 +31,7 @@ clc
 % #########################################################################
 
 P_FC_Q = single(linspace(0,0,1)); % Fuel-cell power (not considered)
-SOC_Q = single(linspace(0,1,21)); % Battery state of charge
+SOC_Q = single(linspace(0.6,0.9,6)); % Battery state of charge
 rateSOC_Q = single(linspace(0,0,1)); % Not considering the rate of change of the SOC
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
@@ -72,16 +72,16 @@ learnRate = 0.99;
 
 % Exploration vs exploitation
 epsilon = 0.5; % Initial value
-epsilonDecay = 0.99992; % Decay factor per iteration
+epsilonDecay = 0.99995; % Decay factor per iteration
 
 % Future vs present value
-discount = 0.9;
+discount = 0.7;
 
 % Inject some noise?
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 2;
+maxEpi = 40;
 
 % % How long are the episodes ? (i.e. how long are the courses?)
 % maxit = 100;
@@ -101,7 +101,7 @@ load('rewardCurveSOC.mat')
 model = 'DC_grid_V2';
 
 % Set the (approximate) duration of one episode:
-totalTime = 20;
+totalTime = 2000;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
@@ -224,9 +224,8 @@ for episodes = 1:maxEpi
         
         dI_FC_Q = actions(1,aIdx_fc);
         inputArray(1) = inputArray(1) + dI_FC_Q;
-        if inputArray(1)<0 % Current always flowing out of the FC
-            inputArray(1)=0;
-        end
+        % A limiter in the Simulink model maintains the value of I in the
+        % operating range.
         inputsFromWS.Value = inputArray;
         
         % Updating the state by running the model
