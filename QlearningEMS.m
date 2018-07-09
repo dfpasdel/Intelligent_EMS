@@ -31,7 +31,7 @@ clc
 % #########################################################################
 
 P_FC_Q = single(linspace(0,0,1)); % Fuel-cell power (not considered)
-SOC_Q = single(linspace(0.6,1,9)); % Battery state of charge
+SOC_Q = single(linspace(0.5,1,11)); % Battery state of charge
 dP_batt_Q = single(linspace(-1,1,2)); % Is the battery willing to charge or discharge? 
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
@@ -72,7 +72,7 @@ learnRate = 0.99;
 
 % Exploration vs exploitation
 epsilon = 0.5; % Initial value
-epsilonDecay = 0.99995; % Decay factor per iteration
+epsilonDecay = 0.9996; % Decay factor per iteration
 
 % Future vs present value
 discount = 0.9;
@@ -81,7 +81,7 @@ discount = 0.9;
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 2;
+maxEpi = 25;
 
 % Q matrix:
 % Lines: states | Rows: actions
@@ -98,7 +98,7 @@ load('rewardCurveSOC.mat')
 model = 'DC_grid_V2';
 
 % Set the (approximate) duration of one episode:
-totalTime = 20;
+totalTime = 2000;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
@@ -320,20 +320,20 @@ for episodes = 1:maxEpi
     % Plotting the result of the episode
     fig = figure(episodes);
     subplot(311)
-    plot(systemStatesTab.time,systemStatesTab.reward,'.-');
+    plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'.-');
 %     plot(systemStatesTab.time,systemStatesTab.P_FC,'.-');
-%     hold on
-    plot(systemStatesTab.time,systemStatesTab.P_Batt,'.-');
+    hold on
+    plot(systemStatesTab.time(2:end),systemStatesTab.P_Batt(2:end),'.-');
 %     legend('P FC (p.u.)','P Batt (p.u.)','Location','southwest');
     subplot(312);
-    plot(systemStatesTab.time,systemStatesTab.SOC_battery,'.-');
+    plot(systemStatesTab.time(2:end),systemStatesTab.SOC_battery(2:end),'.-');
     hold on
-    bar(systemStatesTab.time,systemStatesTab.isExploitationAction);
+    bar(systemStatesTab.time(2:end),systemStatesTab.isExploitationAction(2:end));
     legend('SOC','Exploitation','Location','southwest');
     subplot(313);
-    plot(systemStatesTab.time,systemStatesTab.Setpoint_I_FC,'.-');
+    plot(systemStatesTab.time(2:end),systemStatesTab.Setpoint_I_FC(2:end),'.-');
     hold on
-    plot(systemStatesTab.time,systemStatesTab.Load_profile,'.-');
+    plot(systemStatesTab.time(2:end),systemStatesTab.Load_profile(2:end),'.-');
     %ylim([0,1.5]);
     %legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
     drawnow
