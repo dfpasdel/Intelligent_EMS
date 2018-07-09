@@ -29,12 +29,12 @@
 %                     'epsilonDecay',0.9996,...
 %                     'discount',0.9,...
 %                     'successRate',1,...
-%                     'rewardCurveSOC','rewardCurveSOC.mat'...
+%                     'rewardCurveSOC','rewardCurveSOC.mat',...
+%                     'subFolder','simulation1'...
 %                     );
 
-function QlearningEMS(simParam)
-
-global inputsFromWS
+function QlearningEMS(simParam,parentFolder)
+global inputsFromWS %...Should find solution to avoid it...
 
 % #########################################################################
 % ################                STATES             ######################
@@ -110,6 +110,11 @@ successRate = simParam.successRate; % No noise : 1
 load(simParam.rewardCurveSOC);
 
 
+% Where to store the results
+resultPath = [parentFolder '\' simParam.subFolder '\']; 
+mkdir(resultPath); 
+
+
 % #########################################################################
 % ################      INITIALIZE THE SIMULATION     #####################
 % #########################################################################
@@ -132,8 +137,8 @@ systemStatesTab = struct(...
 % state, and then generate rate of changes.
 
 % Initialize a .txt file containing relevant datas
-delete results.txt
-resultsReport = fopen('results.txt','w');
+delete([resultPath 'results.txt']);
+resultsReport = fopen([resultPath 'results.txt'],'w');
 fprintf(resultsReport,[datestr(now) '\r\n']);
 fprintf(resultsReport,['Model used: ' model '\r\n']);
 fprintf(resultsReport,'Learning rate %2.2f \r\n', learnRate);
@@ -168,14 +173,10 @@ for episodes = 1:maxEpi
     % (the input cannot ba calculated for initial time)
     % Row 1: Command for the FC current at the bus interface (i.e. between
     %        DC/DC conveter and bus. Unit is p.u. (base is the load).
-    % Row 2: Load profile (code for each profile)
-    
-    
-    
+    % Row 2: Load profile (code for each profile) 
     inputsFromWS = Simulink.Parameter(inputArray);
     inputsFromWS.StorageClass='ExportedGlobal';
-    
-    
+    %...should find how to avoid global...
     
     % Initialize the the model constants to ensure consistency with the
     % initialization phase
@@ -344,11 +345,11 @@ for episodes = 1:maxEpi
     plot(systemStatesTab.time(2:end),systemStatesTab.Load_profile(2:end),'.-');
     legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
     drawnow
-    saveas(fig,['episode' num2str(episodes) '.fig']);
+    saveas(fig,[resultPath 'episode' num2str(episodes) '.fig']);
     close(fig);
     
     % Save the Q-matrix
-    save(['Q_matrix_episode' num2str(episodes) '.mat'],'Q');
+    save([resultPath 'Q_matrix_episode' num2str(episodes) '.mat'],'Q');
     
 end % end episodes counting
 
