@@ -16,9 +16,25 @@
 % The Q-learning script is written in per-unit. The outputs of the simulink
 % model are in p.u.
 
-clear all
-close all
-clc
+% INPUT:
+% Structure containing the parameters for simulation following this
+% pattern:
+%                 simParam = struct(...
+%                     'model','DC_grid_V2',...
+%                     'maxEpi',2,...
+%                     'totalTime',20,...
+%                     'iterationTime',1.3,...
+%                     'learnRate',0.99,...
+%                     'epsilon',0.5,...
+%                     'epsilonDecay',0.9996,...
+%                     'discount',0.9,...
+%                     'successRate',1,...
+%                     'rewardCurveSOC','rewardCurveSOC.mat'...
+%                     );
+
+function QlearningEMS(simParam)
+
+global inputsFromWS
 
 % #########################################################################
 % ################                STATES             ######################
@@ -47,6 +63,10 @@ for j=1:length(P_FC_Q)
     end
 end
 
+% Q matrix:
+% Lines: states | Rows: actions
+Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
+
 
 % #########################################################################
 % ###############                ACTIONS             ######################
@@ -61,42 +81,40 @@ actions=[0 -dI_FC_Q dI_FC_Q];
 % ###############          Q-learning SETTINGS         ####################
 % #########################################################################
 
-% Confidence in new trials?
-learnRate = 0.99;
-
-% Exploration vs exploitation
-epsilon = 0.5; % Initial value
-epsilonDecay = 0.9996; % Decay factor per iteration
-
-% Future vs present value
-discount = 0.9;
-
-% Inject some noise?
-successRate = 1; % No noise
-
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 2;
-
-% Q matrix:
-% Lines: states | Rows: actions
-Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
-
-% Load the functions (polynoms) calculating the rewards
-load('rewardCurveSOC.mat')
-
-% #########################################################################
-% ################        INITIALIZE THE MODEL        #####################
-% #########################################################################
+maxEpi = simParam.maxEpi;
 
 % Choose model
-model = 'DC_grid_V2';
+model = simParam.model; 
 
 % Set the (approximate) duration of one episode:
-totalTime = 20;
-% Set the length of one iteration in the simulink model
-iterationTime = 1.3;
+totalTime = simParam.totalTime; 
 
-% Calculates the nomber of iterations
+% Set the length of one iteration in the simulink model
+iterationTime = simParam.iterationTime;
+
+% Confidence in new trials?
+learnRate = simParam.learnRate; 
+
+% Exploration vs exploitation
+epsilon = simParam.epsilon; % Initial value generaly equal to 0.5
+epsilonDecay = simParam.epsilonDecay; % Decay factor per iteration
+
+% Future vs present value
+discount = simParam.discount; %0.9;
+
+% Inject some noise?
+successRate = simParam.successRate; % No noise : 1
+
+% Load the functions (polynoms) calculating the rewards
+load(simParam.rewardCurveSOC);
+
+
+% #########################################################################
+% ################      INITIALIZE THE SIMULATION     #####################
+% #########################################################################
+
+% Calculates the number of iterations 
 maxit = floor(totalTime/iterationTime);
 
 % Empty structure containing the datas for one iteration:
@@ -151,8 +169,13 @@ for episodes = 1:maxEpi
     % Row 1: Command for the FC current at the bus interface (i.e. between
     %        DC/DC conveter and bus. Unit is p.u. (base is the load).
     % Row 2: Load profile (code for each profile)
+    
+    
+    
     inputsFromWS = Simulink.Parameter(inputArray);
     inputsFromWS.StorageClass='ExportedGlobal';
+    
+    
     
     % Initialize the the model constants to ensure consistency with the
     % initialization phase
