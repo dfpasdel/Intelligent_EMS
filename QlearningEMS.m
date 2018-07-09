@@ -319,23 +319,19 @@ for episodes = 1:maxEpi
     
     % Plotting the result of the episode
     fig = figure(episodes);
-    subplot(311)
-    plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'.-');
-%     plot(systemStatesTab.time,systemStatesTab.P_FC,'.-');
-    hold on
-    plot(systemStatesTab.time(2:end),systemStatesTab.P_Batt(2:end),'.-');
-%     legend('P FC (p.u.)','P Batt (p.u.)','Location','southwest');
-    subplot(312);
+    subplot(311);
     plot(systemStatesTab.time(2:end),systemStatesTab.SOC_battery(2:end),'.-');
     hold on
     bar(systemStatesTab.time(2:end),systemStatesTab.isExploitationAction(2:end));
     legend('SOC','Exploitation','Location','southwest');
+    subplot(312)
+    plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'.-');
+    legend('Reward','Location','southwest');
     subplot(313);
     plot(systemStatesTab.time(2:end),systemStatesTab.Setpoint_I_FC(2:end),'.-');
     hold on
     plot(systemStatesTab.time(2:end),systemStatesTab.Load_profile(2:end),'.-');
-    %ylim([0,1.5]);
-    %legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
+    legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
     drawnow
     saveas(fig,['episode' num2str(episodes) '.fig']);
     close(fig);
