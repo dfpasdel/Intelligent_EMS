@@ -31,22 +31,22 @@ clc
 % #########################################################################
 
 P_FC_Q = single(linspace(0,0,1)); % Fuel-cell power (not considered)
-SOC_Q = single(linspace(0.6,0.9,6)); % Battery state of charge
-rateSOC_Q = single(linspace(0,0,1)); % Not considering the rate of change of the SOC
+SOC_Q = single(linspace(0.6,1,9)); % Battery state of charge
+dP_batt_Q = single(linspace(-1,1,2)); % Is the battery willing to charge or discharge? 
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
 
 % Generate a state list
 % 3 Column matrix of all possible combinations of the discretized state.
-Q_states=zeros(length(P_FC_Q)*length(SOC_Q)*length(rateSOC_Q),3,'single'); 
+Q_states=zeros(length(P_FC_Q)*length(SOC_Q)*length(dP_batt_Q),3,'single'); 
 % 'single' precision here
 index=1;
 for j=1:length(P_FC_Q)
     for k = 1:length(SOC_Q)
-        for l = 1:length(rateSOC_Q)
+        for l = 1:length(dP_batt_Q)
             Q_states(index,1)=P_FC_Q(j);
             Q_states(index,2)=SOC_Q(k);
-            Q_states(index,3)=rateSOC_Q(l);
+            Q_states(index,3)=dP_batt_Q(l);
             index=index+1;
         end
     end
@@ -75,16 +75,13 @@ epsilon = 0.5; % Initial value
 epsilonDecay = 0.99995; % Decay factor per iteration
 
 % Future vs present value
-discount = 0.7;
+discount = 0.9;
 
 % Inject some noise?
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 40;
-
-% % How long are the episodes ? (i.e. how long are the courses?)
-% maxit = 100;
+maxEpi = 2;
 
 % Q matrix:
 % Lines: states | Rows: actions
@@ -101,7 +98,7 @@ load('rewardCurveSOC.mat')
 model = 'DC_grid_V2';
 
 % Set the (approximate) duration of one episode:
-totalTime = 2000;
+totalTime = 20;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
@@ -110,14 +107,17 @@ maxit = floor(totalTime/iterationTime);
 
 % Empty structure containing the results of one iteration:
 systemStatesTab = struct(...
-    'time',transpose(iterationTime:iterationTime:maxit*iterationTime)...
-    ,'P_FC',zeros(maxit,1)...
-    ,'P_Batt',zeros(maxit,1)...
-    ,'SOC_battery',zeros(maxit,1)...
-    ,'Load_profile',zeros(maxit,1)...
-    ,'Setpoint_I_FC',zeros(maxit,1)...
-    ,'isExploitationAction',zeros(maxit,1));
+    'time',transpose(0:iterationTime:maxit*iterationTime)...
+    ,'P_FC',zeros(maxit+1,1)...
+    ,'P_Batt',zeros(maxit+1,1)...
+    ,'SOC_battery',zeros(maxit+1,1)...
+    ,'Load_profile',zeros(maxit+1,1)...
+    ,'Setpoint_I_FC',zeros(maxit+1,1)...
+    ,'isExploitationAction',zeros(maxit+1,1)...
+    ,'reward',zeros(maxit+1,1));
 % NOTE: This structure is overwritten each iteration.
+% Has one more line than the number of iteration to include the initial
+% state, and then generate derivatives.
 
 % Initialize a .txt file containing relevant datas
 delete results.txt
@@ -176,8 +176,9 @@ for episodes = 1:maxEpi
     current_Q_state_struct = struct(...
         'P_FC',initial_outputsToWS.P_FC,...
         'SOC',initial_outputsToWS.SOC,...
-        'rateSOC',0);
-    % NOTE: The init value for rateSOC doesn't matter. 
+        'dP_Batt',0);
+    systemStatesTab.P_Batt(1) = initial_outputsToWS.P_batt;
+    % NOTE: The init value for dPbatt doesn't matter. 
     
     % Initialize the Q state to be filled after iteration
     new_Q_state_struct = current_Q_state_struct;
@@ -192,8 +193,9 @@ for episodes = 1:maxEpi
     % Initialize boolean for the case SOC < 10%
     failure = 0;
     
-    for g = 1:maxit
-        fprintf('Episode n.%i, iteration n.%i/%i\n',episodes,g,maxit);
+    for h = 1:maxit
+        g = h + 1; % Do not write the first line (initial values)
+        fprintf('Episode n.%i, iteration n.%i/%i\n',episodes,h,maxit);
         
         % $$$$$$$$$$$$$$$$$$     Pick an action     $$$$$$$$$$$$$$$$$$$$$$$
         % Interpolate the state within our discretization (ONLY for
@@ -247,6 +249,11 @@ for episodes = 1:maxEpi
         % Fill the Q-learning state
         % new_Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
         new_Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
+        if systemStatesTab.P_Batt(g) <= systemStatesTab.P_Batt(g-1) % The battery power is decreasing (willing to charge even more)
+            new_Q_state_struct.dP_Batt = -1;
+        else % The battery power is increasing
+            new_Q_state_struct.dP_Batt = 1;
+        end
 
         
         % Convert the structure to array for use in the Q-learning calculation
@@ -254,6 +261,8 @@ for episodes = 1:maxEpi
         
         % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
         reward = getReward(new_Q_state_struct,rewardCurveSOC);
+        fprintf('SOC %3.3f\n',new_Q_state_struct.SOC);
+        systemStatesTab.reward(g) = reward;
         
         % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
         % NB: no end condition of the episode here, because it is a
@@ -311,10 +320,11 @@ for episodes = 1:maxEpi
     % Plotting the result of the episode
     fig = figure(episodes);
     subplot(311)
-    plot(systemStatesTab.time,systemStatesTab.P_FC,'.-');
-    hold on
+    plot(systemStatesTab.time,systemStatesTab.reward,'.-');
+%     plot(systemStatesTab.time,systemStatesTab.P_FC,'.-');
+%     hold on
     plot(systemStatesTab.time,systemStatesTab.P_Batt,'.-');
-    legend('P FC (p.u.)','P Batt (p.u.)','Location','southwest');
+%     legend('P FC (p.u.)','P Batt (p.u.)','Location','southwest');
     subplot(312);
     plot(systemStatesTab.time,systemStatesTab.SOC_battery,'.-');
     hold on
@@ -325,9 +335,9 @@ for episodes = 1:maxEpi
     hold on
     plot(systemStatesTab.time,systemStatesTab.Load_profile,'.-');
     %ylim([0,1.5]);
-    legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
+    %legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
     drawnow
-    saveas(fig,['episode' num2str(episodes) '.jpg']);
+    saveas(fig,['episode' num2str(episodes) '.fig']);
     close(fig);
     
     % Save the Q-matrix

@@ -10,6 +10,10 @@ function [r] = getReward(S,SOCpolynom)
 %   polynom is generated in a separate script and loaded once in the main 
 %   script)
 
-soc = S.SOC;
-r = polyval(SOCpolynom,soc);
+r = polyval(SOCpolynom,S.SOC);
+if (S.SOC >= 0.9) && (S.dP_Batt == -1)
+    r = 2*r;
+    fprintf('dPbatt penalty\n')
+end
+
 end
