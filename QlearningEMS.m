@@ -16,12 +16,6 @@
 % The Q-learning script is written in per-unit. The outputs of the simulink
 % model are in p.u.
 
-% STATUS:
-% 15/06/18: Body is working. Next step: setting up the Simulink model.
-
-% TO DO:
-% Plot the performance
-
 clear all
 close all
 clc
@@ -39,7 +33,8 @@ dP_batt_Q = single(linspace(-1,1,2)); % Is the battery willing to charge or disc
 % Generate a state list
 % 3 Column matrix of all possible combinations of the discretized state.
 Q_states=zeros(length(P_FC_Q)*length(SOC_Q)*length(dP_batt_Q),3,'single'); 
-% 'single' precision here
+% This part doesn't need to be optimized for simulation time (executed only
+% once)
 index=1;
 for j=1:length(P_FC_Q)
     for k = 1:length(SOC_Q)
@@ -60,8 +55,7 @@ end
 % The only action on the grid from the EMS is on the FC current.
 dI_FC_Q=0.1; %p.u.
 actions=[0 -dI_FC_Q dI_FC_Q];
-% NB:Check consistency with the implementation of the Q-matrix below
-% (number of parameters and number of actions possible for each parameter)
+% NB: Must be consistent with the number of rows in the Q-matrix
 
 % #########################################################################
 % ###############          Q-learning SETTINGS         ####################
@@ -81,11 +75,11 @@ discount = 0.9;
 successRate = 1; % No noise
 
 % How many episodes of testing ? (i.e. how many courses the system attend?)
-maxEpi = 25;
+maxEpi = 2;
 
 % Q matrix:
 % Lines: states | Rows: actions
-Q=repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
+Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
 
 % Load the functions (polynoms) calculating the rewards
 load('rewardCurveSOC.mat')
@@ -98,14 +92,14 @@ load('rewardCurveSOC.mat')
 model = 'DC_grid_V2';
 
 % Set the (approximate) duration of one episode:
-totalTime = 2000;
+totalTime = 20;
 % Set the length of one iteration in the simulink model
 iterationTime = 1.3;
 
 % Calculates the nomber of iterations
 maxit = floor(totalTime/iterationTime);
 
-% Empty structure containing the results of one iteration:
+% Empty structure containing the datas for one iteration:
 systemStatesTab = struct(...
     'time',transpose(0:iterationTime:maxit*iterationTime)...
     ,'P_FC',zeros(maxit+1,1)...
@@ -117,7 +111,7 @@ systemStatesTab = struct(...
     ,'reward',zeros(maxit+1,1));
 % NOTE: This structure is overwritten each iteration.
 % Has one more line than the number of iteration to include the initial
-% state, and then generate derivatives.
+% state, and then generate rate of changes.
 
 % Initialize a .txt file containing relevant datas
 delete results.txt
@@ -131,10 +125,6 @@ fprintf(resultsReport,'Number of episodes planned: %i\r\n', maxEpi);
 fprintf(resultsReport,'Total time per episode: %5.1fs, Iteration time: %3.2fs\r\n',totalTime,iterationTime);
 fprintf(resultsReport,'_______________\r\n\r\n');
 
-% Array containing the episode duration over simulation
-epiDuration = [];
-
-
 % #########################################################################
 % #############              START LEARNING              ##################
 % #########################################################################
@@ -144,53 +134,57 @@ for episodes = 1:maxEpi
     % $$$$$$$$$$$$$$$     INITIALIZE THE EPISODE      $$$$$$$$$$$$$$$$$$$$$
     
     % Measure the simulation time
-    t_SimulinkTotal = 0;
-    t_LearningStart = cputime;
+    t_SimulinkTotal = 0; % For the time running in Simulink
+    t_LearningStart = cputime; % For the total time (Simulink + Learning)
     
-    % Load the initial conditions
+    % Load the initial conditions and set the load profile
+    % NB: At this level is decided the initial condition
+    % Develop here a case or random selection of load profile
     load('initialState_1A.mat');
-    inputArray(2) = 1;
+    inputArray(2) = 1; % Code for the load profile (see documentation)
+    
     % Loading the SimState
     currentSimState = initialSimState;
     
-    % Initial time (time when the iterations start)
-    t_init = initialSimState.snapshotTime;
-    
-    
     % Charge the input for initial time: inputArray
     % (the input cannot ba calculated for initial time)
-    % Row 1: Current command for the FC at the bus interface (i.e. between
+    % Row 1: Command for the FC current at the bus interface (i.e. between
     %        DC/DC conveter and bus. Unit is p.u. (base is the load).
-    % Row 2: Load profile (1 for nominal power)
+    % Row 2: Load profile (code for each profile)
     inputsFromWS = Simulink.Parameter(inputArray);
     inputsFromWS.StorageClass='ExportedGlobal';
     
     % Initialize the the model constants to ensure consistency with the
     % initialization phase
+    % (model_constants loaded a few lines above)
     initialize_model_constants(model,model_constants);
     
     % Open the model and set the simulation modes
-    initialize_model(model);
+    % NB: At this point, the initial state must be known
+    load_system(model);
+    % set_param(model,'FastRestart','off'); % Supposed to be 'off' at the
+    % end of "initialize_model_constants(model,model_constants)"
+    set_param(model,'SaveFinalState','on','FinalStateName','myOperPoint',...
+        'SaveCompleteFinalSimState','on','LoadInitialState','on');
+    set_param(model,'SimulationMode','accelerator');
+    set_param(model,'FastRestart','on'); % No recompllling of the model between iterations
     
     % Starting point
-    current_Q_state_struct = struct(...
-        'P_FC',initial_outputsToWS.P_FC,...
+    Q_state_struct = struct(...
+        'P_FC',0,... % Not used yet
         'SOC',initial_outputsToWS.SOC,...
         'dP_Batt',0);
     systemStatesTab.P_Batt(1) = initial_outputsToWS.P_batt;
     % NOTE: The init value for dPbatt doesn't matter. 
     
-    % Initialize the Q state to be filled after iteration
-    new_Q_state_struct = current_Q_state_struct;
-    
     % Convert the structure to array for use in the Q-learning calculation
-    current_Q_state_array = transpose(cell2mat(struct2cell(current_Q_state_struct)));
+    Q_state_array = transpose(cell2mat(struct2cell(Q_state_struct)));
     
     % Number of exploitation actions (non-random actions) for result
     % analysis
     nExploitation = 0;
     
-    % Initialize boolean for the case SOC < 10%
+    % Initialize boolean for the case SOC < 10% (causing crash in simulink)
     failure = 0;
     
     for h = 1:maxit
@@ -201,76 +195,77 @@ for episodes = 1:maxEpi
         % Interpolate the state within our discretization (ONLY for
         % choosing the action. We do not actually change the state by doing
         % this!)
-        [~,sIdx] = min(sum((Q_states - repmat(current_Q_state_array,[size(Q_states,1),1])).^2,2));
+        [~,sIdx] = min(sum((Q_states - repmat(Q_state_array,[size(Q_states,1),1])).^2,2));
         % sIdx is the index of the state matrix corresponding the best to
         % the current_state.
         
         % $$$$$$$$$$$$$$$$$    Choose an action    $$$$$$$$$$$$$$$$$$$$$$$$
-        % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).
         
-        if rand()>epsilon... % Exploit
+        % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).    
+        if rand()>epsilon... 
                 && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
                 && ((Q(sIdx,1)~=Q(sIdx,2)) && (Q(sIdx,1)~=Q(sIdx,3)))   % Take a random action when all the coefficients are equals
             
             [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
-            systemStatesTab.isExploitationAction(g) = 0.2;
+            systemStatesTab.isExploitationAction(g) = 0.2; % For displaying only
             nExploitation = nExploitation + 1;
+            
         % OR 2) Pick a random action (EXPLORATION)
         else
             aIdx_fc = randi(size(actions,2),1); % Random action for FC!
-            systemStatesTab.isExploitationAction(g) = 0;         
+            systemStatesTab.isExploitationAction(g) = 0; % For displaying only        
         end
         
         % $$$$$$$$$$$$$$$$$    Run the model    $$$$$$$$$$$$$$$$$$$$$$$$$$$
-        % New input for the model:
         
+        % New input for the model:
         dI_FC_Q = actions(1,aIdx_fc);
         inputArray(1) = inputArray(1) + dI_FC_Q;
-        if inputArray(1)<0 % Current always flowing out of the FC
+        % Keep the I_FC_Q in bounds (redundant with limiters in the
+        % simulink model, but accelerates convergence)
+        if inputArray(1)<0 
             inputArray(1)=0;
         elseif inputArray(1)>1.9
             inputArray(1)=1.9;
         end
         inputsFromWS.Value = inputArray;
         
-        % Updating the state by running the model
+        % Run ths Simulink model for iterationTime
         t_SimulinkIterationStart = cputime;
         [currentSimState,simOut] = run_simulation(model,currentSimState,iterationTime);
         t_SimulinkTotal = t_SimulinkTotal + cputime - t_SimulinkIterationStart;
         
-        % Fill the results of the iteration in the structure containing
-        % results:
-        systemStatesTab.P_FC(g)  = simOut.outputsToWS.P_FC.Data(end); % Take the last value to see the impact of the input at the end of iteration time.
+        % Collect the results of the iteration (last value returned by the model):
+        systemStatesTab.P_FC(g)  = simOut.outputsToWS.P_FC.Data(end); 
         systemStatesTab.P_Batt(g) = simOut.outputsToWS.P_batt.Data(end);
         systemStatesTab.SOC_battery(g) = simOut.outputsToWS.SOC.Data(end);
         systemStatesTab.Setpoint_I_FC(g) = inputArray(1);
         systemStatesTab.Load_profile(g) = simOut.outputsToWS.Load_profile.Data(end);
         
         % Fill the Q-learning state
-        % new_Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
-        new_Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
+        % Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
+        Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
         if systemStatesTab.P_Batt(g) <= systemStatesTab.P_Batt(g-1) % The battery power is decreasing (willing to charge even more)
-            new_Q_state_struct.dP_Batt = -1;
+            Q_state_struct.dP_Batt = -1;
         else % The battery power is increasing
-            new_Q_state_struct.dP_Batt = 1;
+            Q_state_struct.dP_Batt = 1;
         end
 
         
         % Convert the structure to array for use in the Q-learning calculation
-        new_Q_state_array = transpose(cell2mat(struct2cell(new_Q_state_struct)));
+        Q_state_array = transpose(cell2mat(struct2cell(Q_state_struct)));
         
         % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-        reward = getReward(new_Q_state_struct,rewardCurveSOC);
-        fprintf('SOC %3.3f\n',new_Q_state_struct.SOC);
+        reward = getReward(Q_state_struct,rewardCurveSOC);
+        fprintf('SOC %3.3f\n',Q_state_struct.SOC);
         systemStatesTab.reward(g) = reward;
         
         % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
-        % NB: no end condition of the episode here, because it is a
-        % tracking problem.
-        [~,snewIdx] = min(sum((Q_states - repmat(new_Q_state_array,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
+        % Interpolate again to find the new state the system is closest to.
+        [~,snewIdx] = min(sum((Q_states - repmat(Q_state_array,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
         
         % Update Q
-        Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) );
+        Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) ); % The line that makes everything !!!
         fprintf('State index %i\n',sIdx);
         fprintf('Reward %2.2f\n',reward);
         fprintf('Q(sIdx,aIdx_fc) %3.2f\n',Q(sIdx,aIdx_fc));
@@ -284,13 +279,7 @@ for episodes = 1:maxEpi
         if simOut.outputsToWS.SOC.Data(end) < 0.1
             failure = 1;
             break
-        end
-        
-        % Update the Q state for next iteration
-        current_Q_state_struct = new_Q_state_struct;
-        current_Q_state_array = new_Q_state_array;
-        
-        
+        end        
         
     end % end iterations counting for single episode
 
@@ -298,10 +287,9 @@ for episodes = 1:maxEpi
     set_param(model,'FastRestart','off');
     close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
     
-    % Analysis of the performance
+    % Analysis of the episode performance
     if ~failure
         t_LearningTotal = cputime - t_LearningStart;
-        epiDuration = [epiDuration t_LearningTotal];
         fprintf(resultsReport,'Episode %i: \r\n',episodes);
         ratioExploitation = (nExploitation/maxit)*100;
         fprintf(resultsReport,'Exploitation actions: %3.2f%% \r\n',ratioExploitation);
@@ -341,33 +329,5 @@ for episodes = 1:maxEpi
     
 end % end episodes counting
 
-% Plot the evolution of the duration episides duration:
-fig = figure(maxEpi+1);
-plot(epiDuration);
-saveas(fig,'Episodes_duration.jpg');
-close(fig);
-
 % Close the text file
 fclose(resultsReport);
-
-%%
-function initialize_model(model)
-% DESCRIPTION:
-% Function to be used before multiple simulations of the model.
-% This function aim to reduce the time of execution of the simulation by
-% setting 'FastRestart' i.e. no re-compilling of the model between the
-% runs.
-% NB: When the initialize function is called, the initial state must be
-% known
-% FREQUENCY OF EXECUTION:
-% Once at the beginning of a multiple run simulation
-% EXAMPLE OF USE:
-% See example and test in the script SimState_testing_and_example
-
-open_system(model,'loadonly');
-set_param(model,'FastRestart','off');
-set_param(model,'SaveFinalState','on','FinalStateName','myOperPoint',...
-    'SaveCompleteFinalSimState','on','LoadInitialState','on');
-set_param(model,'SimulationMode','accelerator');
-set_param(model,'FastRestart','on');
-end

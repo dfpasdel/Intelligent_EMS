@@ -9,7 +9,7 @@ function initialize_model_constants(model,MC)
 
 assignin('base','MC',MC); % Simulink is working in the base WS
 
-open_system(model);
+load_system(model);
 set_param(model,'FastRestart','off');
 
 batteryMask = Simulink.Mask.get([model,'/Battery']); 
