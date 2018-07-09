@@ -208,7 +208,7 @@ for episodes = 1:maxEpi
         
         if rand()>epsilon... % Exploit
                 && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
-                && not(isequal(Q(sIdx,:),[0 0 0]))   % Take a random action when all the coefficients are equals
+                && ((Q(sIdx,1)~=Q(sIdx,2)) && (Q(sIdx,1)~=Q(sIdx,3)))   % Take a random action when all the coefficients are equals
             
             [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
             systemStatesTab.isExploitationAction(g) = 0.2;
@@ -224,8 +224,11 @@ for episodes = 1:maxEpi
         
         dI_FC_Q = actions(1,aIdx_fc);
         inputArray(1) = inputArray(1) + dI_FC_Q;
-        % A limiter in the Simulink model maintains the value of I in the
-        % operating range.
+        if inputArray(1)<0 % Current always flowing out of the FC
+            inputArray(1)=0;
+        elseif inputArray(1)>1.9
+            inputArray(1)=1.9;
+        end
         inputsFromWS.Value = inputArray;
         
         % Updating the state by running the model
