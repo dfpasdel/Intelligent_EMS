@@ -167,8 +167,8 @@ for episodes = 1:maxEpi
         % Load the initial conditions and set the load profile
         % NB: At this level is decided the initial condition
         % Develop here a case or random selection of load profile
-        load('initialState_1A.mat');
-        inputArray(2) = 1; % Code for the load profile (see documentation)
+        load('initialState_2X.mat');
+        inputArray(2) = 3; % Code for the load profile (see documentation)
         
         % Loading the SimState
         currentSimState = initialSimState;
@@ -344,15 +344,20 @@ for episodes = 1:maxEpi
             bar(systemStatesTab.time(2:end),systemStatesTab.isExploitationAction(2:end));
             legend('SOC','Exploitation','Location','southwest');
             subplot(312)
-            plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'.-');
-            legend('Reward','Location','southwest');
+            plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'-');
+            hold on
+            plot(systemStatesTab.time(2:end),systemStatesTab.P_Batt(2:end),'-');
+            legend('Reward','P Batt','Location','southwest');
             subplot(313);
             plot(systemStatesTab.time(2:end),systemStatesTab.Setpoint_I_FC(2:end),'.-');
             hold on
-            plot(systemStatesTab.time(2:end),systemStatesTab.Load_profile(2:end),'.-');
-            legend('I FC (p.u.)','Load profile (p.u.)','Location','southwest');
+            plot(systemStatesTab.time(2:end),systemStatesTab.P_FC(2:end),'-');
+            hold on
+            plot(systemStatesTab.time(2:end),systemStatesTab.Load_profile(2:end),'-');
+            legend('I FC (p.u.)','P FC (p.u.)','Load profile (p.u.)','Location','southwest');
             drawnow
             saveas(fig,[resultPath 'episode' num2str(episodes) '.fig']);
+            saveas(fig,[resultPath 'episode' num2str(episodes) '.jpg']);
             close(fig);
             
             % Save the Q-matrix
