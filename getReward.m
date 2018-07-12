@@ -11,6 +11,10 @@ function [r] = getReward(S,SOCpolynom)
 %   script)
 
 r = polyval(SOCpolynom,S.SOC);
+if ((S.SOC >= 0.66) && (S.SOC <= 0.7) && (S.dP_Batt == 1)) ...
+        || ((S.SOC >= 0.7) && (S.SOC <= 0.74) && (S.dP_Batt == -1)) % Give a bonus for good SOC
+    r = 2*r;
+end
 if ((S.SOC >= 0.9) && (S.dP_Batt == -1)) || ((S.SOC <= 0.5) && (S.dP_Batt == 1))
     r = 2*r;
     fprintf('dPbatt penalty\n')
