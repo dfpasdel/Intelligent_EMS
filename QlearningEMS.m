@@ -166,10 +166,18 @@ for episodes = 1:maxEpi
         
         % Load the initial conditions and set the load profile
         % NB: At this level is decided the initial condition
-        % Develop here a case or random selection of load profile
-        load('initialState_2X.mat');
-        inputArray(2) = 3; % Code for the load profile (see documentation)
         
+        load('initialState_3X.mat');
+        m = mod(episodes,3);
+        switch m
+            case 0
+                inputArray(2) = 6; % Sinus period 1sec
+            case 0
+                inputArray(2) = 8; % Sinus period 60sec
+            case 0
+                inputArray(2) = 7; % Sinus period 5sec
+        end
+              
         % Loading the SimState
         currentSimState = initialSimState;
         
@@ -339,10 +347,13 @@ for episodes = 1:maxEpi
             % Plotting the result of the episode
             fig = figure(episodes);
             subplot(311);
-            plot(systemStatesTab.time(2:end),systemStatesTab.SOC_battery(2:end),'.-');
+            h(1) = plot(systemStatesTab.time(2:end),systemStatesTab.SOC_battery(2:end),'.-');
             hold on
-            bar(systemStatesTab.time(2:end),systemStatesTab.isExploitationAction(2:end));
-            legend('SOC','Exploitation','Location','southwest');
+            h(2) = bar(systemStatesTab.time(2:end),systemStatesTab.isExploitationAction(2:end));
+            legend(h([1 2]),'SOC','Exploitation','Location','southwest');            
+            hold on
+            line([systemStatesTab.time(1),systemStatesTab.time(end)],[0.6,0.6],'Color','k','LineStyle',':');
+            line([systemStatesTab.time(1),systemStatesTab.time(end)],[0.8,0.8],'Color','k','LineStyle',':');
             subplot(312)
             plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'-');
             hold on
