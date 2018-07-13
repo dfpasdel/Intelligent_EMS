@@ -122,6 +122,17 @@ mkdir(resultPath);
 % Calculates the number of iterations
 maxit = floor(totalTime/iterationTime);
 
+% Buffer load profile.
+% When the system is off for more than tStopLearning, the learning should 
+% stop to avoid modifying the Q-matrix during this period. 
+% This buffer contains the load value, and the system is considered to be
+% off when the buffer is only filled with zeros. 
+tStopLearning = 10; % Stop the learning 3sec after the system turns off.
+loadBufferLength = floor(tStopLearning/iterationTime);
+loadBuffer = ones(loadBufferLength,1)'; % Initialized to 1 to learn at launching.
+loadBufferIdle = zeros(loadBufferLength,1)'; % Buffer to test the equality with.
+
+
 % Empty structure containing the datas for one iteration:
 systemStatesTab = struct(...
     'time',transpose(0:iterationTime:maxit*iterationTime)...
@@ -172,9 +183,9 @@ for episodes = 1:maxEpi
         switch m
             case 0
                 inputArray(2) = 6; % Sinus period 1sec
-            case 0
+            case 1
                 inputArray(2) = 8; % Sinus period 60sec
-            case 0
+            case 2
                 inputArray(2) = 7; % Sinus period 5sec
         end
               
@@ -284,6 +295,11 @@ for episodes = 1:maxEpi
                 systemStatesTab.SOC_battery(g) = simOut.outputsToWS.SOC.Data(end);
                 systemStatesTab.Setpoint_I_FC(g) = inputArray(1);
                 systemStatesTab.Load_profile(g) = simOut.outputsToWS.Load_profile.Data(end);
+                systemOn = 1;
+                loadBuffer(mod(g,loadBufferLength)+1) = systemStatesTab.Load_profile(g);
+                if isequal(loadBuffer,loadBufferIdle)
+                    systemOn = 0;
+                end
                 
                 % Fill the Q-learning state
                 % Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
@@ -308,7 +324,7 @@ for episodes = 1:maxEpi
                 [~,snewIdx] = min(sum((Q_states - repmat(Q_state_array,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
                 
                 % Update Q
-                Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) ); % The line that makes everything !!!
+                Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * systemOn * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) ); % The line that makes everything !!!
                 fprintf('State index %i\n',sIdx);
                 fprintf('Reward %2.2f\n',reward);
                 fprintf('Q(sIdx,aIdx_fc) %3.2f\n',Q(sIdx,aIdx_fc));
@@ -346,26 +362,28 @@ for episodes = 1:maxEpi
             
             % Plotting the result of the episode
             fig = figure(episodes);
+            
             subplot(311);
             h(1) = plot(systemStatesTab.time(2:end),systemStatesTab.SOC_battery(2:end),'.-');
             hold on
             h(2) = bar(systemStatesTab.time(2:end),systemStatesTab.isExploitationAction(2:end));
-            legend(h([1 2]),'SOC','Exploitation','Location','southwest');            
-            hold on
-            line([systemStatesTab.time(1),systemStatesTab.time(end)],[0.6,0.6],'Color','k','LineStyle',':');
-            line([systemStatesTab.time(1),systemStatesTab.time(end)],[0.8,0.8],'Color','k','LineStyle',':');
+            h(3) = line([systemStatesTab.time(1),systemStatesTab.time(end)],[0.6,0.6],'Color','k','LineStyle',':');
+            h(4) = line([systemStatesTab.time(1),systemStatesTab.time(end)],[0.8,0.8],'Color','k','LineStyle',':');
+            legend(h([1 2]),'SOC','Exploitation','Location','southwest');
+            
             subplot(312)
             plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'-');
             hold on
             plot(systemStatesTab.time(2:end),systemStatesTab.P_Batt(2:end),'-');
             legend('Reward','P Batt','Location','southwest');
+            
             subplot(313);
             plot(systemStatesTab.time(2:end),systemStatesTab.Setpoint_I_FC(2:end),'.-');
             hold on
             plot(systemStatesTab.time(2:end),systemStatesTab.P_FC(2:end),'-');
-            hold on
             plot(systemStatesTab.time(2:end),systemStatesTab.Load_profile(2:end),'-');
             legend('I FC (p.u.)','P FC (p.u.)','Load profile (p.u.)','Location','southwest');
+            
             drawnow
             saveas(fig,[resultPath 'episode' num2str(episodes) '.fig']);
             saveas(fig,[resultPath 'episode' num2str(episodes) '.jpg']);
