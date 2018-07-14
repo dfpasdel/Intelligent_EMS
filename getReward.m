@@ -1,4 +1,4 @@
-function [r] = getReward(S,SOCpolynom)
+function [r] = getReward(S,SOCpolynom,PFCpolynom)
 % DESCRIPTION:
 % Takes the Q-state as input and returns a reward as output.
 % NOTE: 
@@ -10,7 +10,9 @@ function [r] = getReward(S,SOCpolynom)
 %   polynom is generated in a separate script and loaded once in the main 
 %   script)
 
-r = polyval(SOCpolynom,S.SOC);
+rSOC = polyval(SOCpolynom,S.SOC);
+rPFC = max(polyval(PFCpolynom,S.P_FC),0);
+r = rSOC + rPFC;
 if ((S.SOC >= 0.66) && (S.SOC <= 0.7) && (S.dP_Batt == 1)) ...
         || ((S.SOC >= 0.7) && (S.SOC <= 0.74) && (S.dP_Batt == -1)) % Give a bonus for good SOC
     r = 2*r;
