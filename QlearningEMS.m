@@ -143,6 +143,7 @@ systemStatesTab = struct(...
     ,'Load_profile',zeros(maxit+1,1)...
     ,'Setpoint_I_FC',zeros(maxit+1,1)...
     ,'isExploitationAction',zeros(maxit+1,1)...
+    ,'Stack_efficiency',zeros(maxit+1,1)...
     ,'reward',zeros(maxit+1,1));
 % NOTE: This structure is overwritten each iteration.
 % Has one more line than the number of iteration to include the initial
@@ -294,6 +295,7 @@ for episodes = 1:maxEpi
                 systemStatesTab.P_FC(g)  = simOut.outputsToWS.P_FC.Data(end);
                 systemStatesTab.P_Batt(g) = simOut.outputsToWS.P_batt.Data(end);
                 systemStatesTab.SOC_battery(g) = simOut.outputsToWS.SOC.Data(end);
+                systemStatesTab.Stack_Efficiency(g) = simOut.outputsToWS.Stack_efficiency.Data(end);
                 systemStatesTab.Setpoint_I_FC(g) = inputArray(1);
                 systemStatesTab.Load_profile(g) = simOut.outputsToWS.Load_profile.Data(end);
                 systemOn = 1;
@@ -355,6 +357,9 @@ for episodes = 1:maxEpi
                 ratioTime = (t_SimulinkTotal/t_LearningTotal)*100;
                 fprintf(resultsReport,'Ratio Simulink/Total time for episode: %3.2f%% \r\n',ratioTime);
                 fprintf(resultsReport,'_______________\r\n\r\n');
+                
+                % Save the data collected
+                save([resultPath 'Data_episode' num2str(episodes) '.mat'],'systemStatesTab');
             else
                 fprintf(resultsReport,'Episode %i: \r\n',episodes);
                 fprintf(resultsReport,'Failure, SOC too close to 0\r\n');
