@@ -12,16 +12,20 @@ function [r] = getReward(S,SOCpolynom,PFCpolynom)
 
 rSOC = polyval(SOCpolynom,S.SOC);
 rPFC = max(polyval(PFCpolynom,S.P_FC),0);
-r = rSOC + rPFC;
 if ((S.SOC >= 0.66) && (S.SOC <= 0.7) && (S.dP_Batt == 1)) ...
         || ((S.SOC >= 0.7) && (S.SOC <= 0.74) && (S.dP_Batt == -1)) % Give a bonus for good SOC
-    r = 2*r;
+    rSOC = 2*rSOC;
 end
 if ((S.SOC >= 0.9) && (S.dP_Batt == -1)) || ((S.SOC <= 0.5) && (S.dP_Batt == 1))
-    r = 2*r;
+    rSOC = 2*rSOC;
     fprintf('dPbatt penalty\n')
 end
+if (S.SOC >= 0.63) && (S.SOC <= 0.77)
+    r = rSOC + rPFC;
+else
+    r = rSOC;
+end
 % Adding dP_batt avoid being stucked in bad condition (e.g. when SOC = 1,
-% the the reduction of the recharging-power of the battery is privilegied
+% the the reduction of the recharging-power of the battery is privilegied)
 
 end
