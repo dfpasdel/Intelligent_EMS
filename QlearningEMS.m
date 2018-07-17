@@ -40,7 +40,7 @@ global inputsFromWS %...Should find solution to avoid it...
 % ################                STATES             ######################
 % #########################################################################
 
-P_FC_Q = [0.08 0.15 0.5 0.6 0.74 0.77 0.8 0.9]; % Fuel-cell power
+P_FC_Q = single(linspace(0,0,1)); % Fuel-cell power (not considered)
 SOC_Q = single(linspace(0.5,1,11)); % Battery state of charge
 dP_batt_Q = single(linspace(-1,1,2)); % Is the battery willing to charge or discharge?
 % The suffix _Q is added to emphasize that this is the state used in the
@@ -108,7 +108,6 @@ successRate = simParam.successRate; % No noise : 1
 
 % Load the functions (polynoms) calculating the rewards
 load(simParam.rewardCurveSOC);
-load(simParam.rewardCurvePFC);
 
 
 % Where to store the results
@@ -305,7 +304,7 @@ for episodes = 1:maxEpi
                 end
                 
                 % Fill the Q-learning state
-                Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
+                %Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
                 Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
                 if systemStatesTab.P_Batt(g) <= systemStatesTab.P_Batt(g-1) % The battery power is decreasing (willing to charge even more)
                     Q_state_struct.dP_Batt = -1;
@@ -318,7 +317,7 @@ for episodes = 1:maxEpi
                 Q_state_array = transpose(cell2mat(struct2cell(Q_state_struct)));
                 
                 % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-                reward = getReward(Q_state_struct,rewardCurveSOC,rewardCurvePFC);
+                reward = getReward(Q_state_struct,rewardCurveSOC);
                 fprintf('SOC %3.3f\n',Q_state_struct.SOC);
                 systemStatesTab.reward(g) = reward;
                 
