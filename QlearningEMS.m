@@ -40,7 +40,7 @@ global inputsFromWS %...Should find solution to avoid it...
 % ################                STATES             ######################
 % #########################################################################
 
-P_FC_Q = single(linspace(0,0.8,15)); % Fuel-cell power
+P_FC_Q = [0.08 0.15 0.5 0.6 0.74 0.77 0.8 0.9]; % Fuel-cell power
 SOC_Q = single(linspace(0.5,1,11)); % Battery state of charge
 dP_batt_Q = single(linspace(-1,1,2)); % Is the battery willing to charge or discharge?
 % The suffix _Q is added to emphasize that this is the state used in the
@@ -295,7 +295,7 @@ for episodes = 1:maxEpi
                 systemStatesTab.P_FC(g)  = simOut.outputsToWS.P_FC.Data(end);
                 systemStatesTab.P_Batt(g) = simOut.outputsToWS.P_batt.Data(end);
                 systemStatesTab.SOC_battery(g) = simOut.outputsToWS.SOC.Data(end);
-                systemStatesTab.Stack_Efficiency(g) = simOut.outputsToWS.Stack_efficiency.Data(end);
+                systemStatesTab.Stack_efficiency(g) = simOut.outputsToWS.Stack_efficiency.Data(end);
                 systemStatesTab.Setpoint_I_FC(g) = inputArray(1);
                 systemStatesTab.Load_profile(g) = simOut.outputsToWS.Load_profile.Data(end);
                 systemOn = 1;
