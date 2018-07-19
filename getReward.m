@@ -1,4 +1,4 @@
-function [r] = getReward(S,SOCpolynom)
+function [r] = getReward(S,SOCpolynom,PFCpolynom)
 % DESCRIPTION:
 % Takes the Q-state as input and returns a reward as output.
 % NOTE: 
@@ -10,15 +10,23 @@ function [r] = getReward(S,SOCpolynom)
 %   polynom is generated in a separate script and loaded once in the main 
 %   script)
 
-r = polyval(SOCpolynom,S.SOC);
+rSOC = polyval(SOCpolynom,S.SOC);
 if ((S.SOC >= 0.66) && (S.SOC <= 0.7) && (S.dP_Batt == 1)) ...
         || ((S.SOC >= 0.7) && (S.SOC <= 0.74) && (S.dP_Batt == -1)) % Give a bonus for good SOC
-    r = 2*r;
+    rSOC = 2*rSOC;
 end
 if ((S.SOC >= 0.9) && (S.dP_Batt == -1)) || ((S.SOC <= 0.5) && (S.dP_Batt == 1))
-    r = 2*r;
+    rSOC = 2*rSOC;
     fprintf('dPbatt penalty\n')
 end
+
+% % % % if ((S.SOC >= 0.66) && (S.SOC <= 0.7))...
+% % % %         && ((S.P_FC >= 0.2) && (S.P_FC <= 0.8))
+% % % %     r = rSOC + 2;
+% % % % else
+    r = rSOC;
+% % % % end
+
 % Adding dP_batt avoid being stucked in bad condition (e.g. when SOC = 1,
 % the the reduction of the recharging-power of the battery is privilegied
 

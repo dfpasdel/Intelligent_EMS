@@ -40,8 +40,8 @@ global inputsFromWS %...Should find solution to avoid it...
 % ################                STATES             ######################
 % #########################################################################
 
-P_FC_Q = single(linspace(0,0,1)); % Fuel-cell power (not considered)
-SOC_Q = single(linspace(0.5,1,11)); % Battery state of charge
+P_FC_Q = [-0.1 0.5 1.1]; % Fuel-cell power 
+SOC_Q = [0.41 0.59 0.61 0.63 0.65 0.67 0.73 0.75 0.77 0.79 0.81 0.99]; % Battery state of charge
 dP_batt_Q = single(linspace(-1,1,2)); % Is the battery willing to charge or discharge?
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
@@ -63,9 +63,11 @@ for j=1:length(P_FC_Q)
     end
 end
 
+
 % Q matrix:
 % Lines: states | Rows: actions
 Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
+% % % % load('Q_matrix_learned.mat');
 
 
 % #########################################################################
@@ -108,6 +110,7 @@ successRate = simParam.successRate; % No noise : 1
 
 % Load the functions (polynoms) calculating the rewards
 load(simParam.rewardCurveSOC);
+load(simParam.rewardCurvePFC);
 
 
 % Where to store the results
@@ -127,7 +130,7 @@ maxit = floor(totalTime/iterationTime);
 % stop to avoid modifying the Q-matrix during this period. 
 % This buffer contains the load value, and the system is considered to be
 % off when the buffer is only filled with zeros. 
-tStopLearning = 10; % Stop the learning 3sec after the system turns off.
+tStopLearning = 5; % Stop the learning 5sec after the system turns off.
 loadBufferLength = floor(tStopLearning/iterationTime);
 loadBuffer = ones(loadBufferLength,1)'; % Initialized to 1 to learn at launching.
 loadBufferIdle = zeros(loadBufferLength,1)'; % Buffer to test the equality with.
@@ -180,6 +183,7 @@ for episodes = 1:maxEpi
         % NB: At this level is decided the initial condition
         
         load('initialState_3X.mat');
+% % % %         inputArray(2) = 10;
         m = mod(episodes,3);
         switch m
             case 0
@@ -224,15 +228,16 @@ for episodes = 1:maxEpi
         
         % Starting point
         Q_state_struct = struct(...
-            'P_FC',0,... % Not used yet
+            'P_FC',initial_outputsToWS.P_FC,...
             'SOC',initial_outputsToWS.SOC,...
             'dP_Batt',0);
+        
         systemStatesTab.P_Batt(1) = initial_outputsToWS.P_batt;
         % NOTE: The init value for dPbatt doesn't matter.
         
         % Convert the structure to array for use in the Q-learning calculation
         Q_state_array = transpose(cell2mat(struct2cell(Q_state_struct)));
-        
+    
         % Number of exploitation actions (non-random actions) for result
         % analysis
         nExploitation = 0;
@@ -304,7 +309,7 @@ for episodes = 1:maxEpi
                 end
                 
                 % Fill the Q-learning state
-                %Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
+                Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
                 Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
                 if systemStatesTab.P_Batt(g) <= systemStatesTab.P_Batt(g-1) % The battery power is decreasing (willing to charge even more)
                     Q_state_struct.dP_Batt = -1;
@@ -317,7 +322,7 @@ for episodes = 1:maxEpi
                 Q_state_array = transpose(cell2mat(struct2cell(Q_state_struct)));
                 
                 % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-                reward = getReward(Q_state_struct,rewardCurveSOC);
+                reward = getReward(Q_state_struct,rewardCurveSOC,rewardCurvePFC);
                 fprintf('SOC %3.3f\n',Q_state_struct.SOC);
                 systemStatesTab.reward(g) = reward;
                 
