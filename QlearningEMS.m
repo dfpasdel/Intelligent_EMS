@@ -41,7 +41,8 @@ global inputsFromWS %...Should find solution to avoid it...
 % #########################################################################
 
 P_FC_Q = [-0.1 0.5 1.1]; % Fuel-cell power 
-SOC_Q = [0.41 0.59 0.61 0.63 0.65 0.67 0.73 0.75 0.77 0.79 0.81 0.99]; % Battery state of charge
+% % % % SOC_Q = [0.41 0.59 0.61 0.63 0.65 0.67 0.73 0.75 0.77 0.79 0.81 0.99]; % Battery state of charge
+SOC_Q = single(linspace(0.5,1,11)); % Battery state of charge
 dP_batt_Q = single(linspace(-1,1,2)); % Is the battery willing to charge or discharge?
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
@@ -136,7 +137,8 @@ loadBuffer = ones(loadBufferLength,1)'; % Initialized to 1 to learn at launching
 loadBufferIdle = zeros(loadBufferLength,1)'; % Buffer to test the equality with.
 
 
-% Empty structure containing the datas for one iteration:
+% Empty structure containing the discretized datas for one episode (filled
+% with the end value of each iteration)
 systemStatesTab = struct(...
     'time',transpose(0:iterationTime:maxit*iterationTime)...
     ,'P_FC',zeros(maxit+1,1)...
@@ -150,6 +152,17 @@ systemStatesTab = struct(...
 % NOTE: This structure is overwritten each iteration.
 % Has one more line than the number of iteration to include the initial
 % state, and then generate rate of changes.
+
+% Empty structure containing continuous datas for one episode (filled with
+% data collected all along the iteration)
+continuousData = struct(...
+    'time',[]...
+    ,'P_FC',[]...
+    ,'P_Batt',[]...
+    ,'SOC_battery',[]...
+    ,'Load_profile',timeseries()...
+    ,'Stack_efficiency',[]);
+% The size of this structure is unknown (depending on auto time step)
 
 % Initialize a .txt file containing relevant datas
 delete([resultPath 'results.txt']);
@@ -182,20 +195,24 @@ for episodes = 1:maxEpi
         % Load the initial conditions and set the load profile
         % NB: At this level is decided the initial condition
         
-        load('initialState_3X.mat');
-% % % %         inputArray(2) = 10;
-        m = mod(episodes,3);
-        switch m
-            case 0
-                inputArray(2) = 6; % Sinus period 1sec
-            case 1
-                inputArray(2) = 8; % Sinus period 60sec
-            case 2
-                inputArray(2) = 7; % Sinus period 5sec
-        end
+        load('initialState_30Ah.mat');
+% % % % load('initialState_1_5Ah.mat');
+        inputArray(2) = 10;
+% % % %         m = mod(episodes,3);
+% % % %         switch m
+% % % %             case 0
+% % % %                 inputArray(2) = 6; % Sinus period 1sec
+% % % %             case 1
+% % % %                 inputArray(2) = 8; % Sinus period 60sec
+% % % %             case 2
+% % % %                 inputArray(2) = 7; % Sinus period 5sec
+% % % %         end
               
         % Loading the SimState
         currentSimState = initialSimState;
+        
+        % Initial time (time when the iterations start) (used for plotting)
+        t_init = initialSimState.snapshotTime;
         
         % Charge the input for initial time: inputArray
         % (the input cannot ba calculated for initial time)
@@ -308,6 +325,15 @@ for episodes = 1:maxEpi
                     systemOn = 0;
                 end
                 
+                continuousData.time = [continuousData.time simOut.tout'];
+                continuousData.P_FC = [continuousData.P_FC simOut.outputsToWS.P_FC.Data'];
+                continuousData.P_Batt = [continuousData.P_Batt simOut.outputsToWS.P_batt.Data'];
+                continuousData.SOC_battery = [continuousData.SOC_battery simOut.outputsToWS.SOC.Data'];
+                continuousData.Load_profile = append(continuousData.Load_profile,simOut.outputsToWS.Load_profile);
+                continuousData.Stack_efficiency = [continuousData.Stack_efficiency simOut.outputsToWS.Stack_efficiency.Data'];
+                
+                
+                
                 % Fill the Q-learning state
                 Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
                 Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
@@ -362,6 +388,31 @@ for episodes = 1:maxEpi
                 fprintf(resultsReport,'Ratio Simulink/Total time for episode: %3.2f%% \r\n',ratioTime);
                 fprintf(resultsReport,'_______________\r\n\r\n');
                 
+                % Resample the continuous data at f=1Hz
+                continuousData.time = continuousData.time - t_init; % Remove the initialization time in the continuous data
+                resampledData = struct(...
+                    'time',[]...
+                    ,'P_FC',[]...
+                    ,'P_Batt',[]...
+                    ,'SOC_battery',[]...
+                    ,'Load_profile',timeseries()...
+                    ,'Stack_efficiency',[]);
+             
+                
+                tEnd = floor(continuousData.time(end));
+                resampledData.time = zeros(tEnd+1,1);
+                for i = 0:tEnd
+                    resampledData.time(i+1) = i; % Resample at a rate of 1Hz (one value each sec)
+                end
+                [x, index] = unique(continuousData.time); 
+                resampledData.P_FC = interp1(x,continuousData.P_FC(index),resampledData.time);
+                resampledData.P_Batt = interp1(x,continuousData.P_Batt(index),resampledData.time);
+                resampledData.SOC_battery = interp1(x,continuousData.SOC_battery(index),resampledData.time);
+                resampledData.Load_profile = resample(continuousData.Load_profile,resampledData.time);
+                resampledData.Stack_efficiency = interp1(x,continuousData.Stack_efficiency(index),resampledData.time);
+                
+
+
                 % Save the data collected
                 save([resultPath 'Data_episode' num2str(episodes) '.mat'],'systemStatesTab');
             else
@@ -370,28 +421,32 @@ for episodes = 1:maxEpi
                 fprintf(resultsReport,'_______________\r\n\r\n');
             end
             
+
+            
             % Plotting the result of the episode
             fig = figure(episodes);
             
             subplot(311);
-            h(1) = plot(systemStatesTab.time(2:end),systemStatesTab.SOC_battery(2:end),'.-');
+            h(1) = plot(systemStatesTab.time(2:end),systemStatesTab.SOC_battery(2:end),'.');
             hold on
             h(2) = bar(systemStatesTab.time(2:end),systemStatesTab.isExploitationAction(2:end));
             h(3) = line([systemStatesTab.time(1),systemStatesTab.time(end)],[0.6,0.6],'Color','k','LineStyle',':');
             h(4) = line([systemStatesTab.time(1),systemStatesTab.time(end)],[0.8,0.8],'Color','k','LineStyle',':');
-            legend(h([1 2]),'SOC','Exploitation','Location','southwest');
+            h(5) = plot(resampledData.time,resampledData.SOC_battery,'-');
+            legend(h([1 2 5]),'Processing point','Exploitation','SOC','Location','southwest');
             
             subplot(312)
-            plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'-');
+            plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'*-');
             hold on
-            plot(systemStatesTab.time(2:end),systemStatesTab.P_Batt(2:end),'-');
+            plot(resampledData.time,resampledData.P_Batt,'-');
+            plot(systemStatesTab.time(2:end),systemStatesTab.P_Batt(2:end),'.');
             legend('Reward','P Batt','Location','southwest');
             
             subplot(313);
             plot(systemStatesTab.time(2:end),systemStatesTab.Setpoint_I_FC(2:end),'.-');
             hold on
-            plot(systemStatesTab.time(2:end),systemStatesTab.P_FC(2:end),'-');
-            plot(systemStatesTab.time(2:end),systemStatesTab.Load_profile(2:end),'-');
+            plot(resampledData.time,resampledData.P_FC,'-');
+            plot(resampledData.Load_profile,'-');
             legend('I FC (p.u.)','P FC (p.u.)','Load profile (p.u.)','Location','southwest');
             
             drawnow
