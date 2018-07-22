@@ -41,8 +41,8 @@ global inputsFromWS %...Should find solution to avoid it...
 % #########################################################################
 
 Time_steady_Q = [0]; % For how long is the input the same ?
-P_batt_Q = [0];
-P_FC_Q = [0];
+P_batt_Q = [-1 -0.8 -0.55 -0.25 0.25 0.55 0.8 1];
+P_FC_Q = [0.6 0.8]; % Centered on 0.7 mean P_FC < 0.7 = good else bad
 SOC_Q = single(linspace(0.5,1,11)); % Battery state of charge
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
@@ -71,9 +71,10 @@ pause(1)
 
 
 % Q matrix:
-% Lines: states | Rows: actions
-% % % % Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
-load('Q_matrix_learned.mat');
+% Lines: states | columns: actions
+Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
+% % % % load('Q_learned.mat');
+% % % % Q = repmat(Q,[length(P_FC_Q)*length(P_batt_Q),1]);
 
 % Matrix to keep track of the actions taken (not for calculation)
 Q_visited = zeros(size(Q));
@@ -151,6 +152,9 @@ systemStatesTab = struct(...
     ,'Setpoint_I_FC',zeros(maxit+1,1)...
     ,'isExploitationAction',zeros(maxit+1,1)...
     ,'Stack_efficiency',zeros(maxit+1,1)...
+    ,'reward_SOC',zeros(maxit+1,1)...
+    ,'reward_P_FC',zeros(maxit+1,1)...
+    ,'reward_P_batt',zeros(maxit+1,1)...
     ,'reward',zeros(maxit+1,1));
 % NOTE: This structure is overwritten each iteration.
 % Has one more line than the number of iteration to include the initial
@@ -374,10 +378,17 @@ for episodes = 1:maxEpi
                 Q_state_array = transpose(cell2mat(struct2cell(Q_state_struct)));
                 
                 % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-                [rSOC] = getReward(Q_state_struct,aIdx_fc);
-                reward = rSOC;
+                [rSOC,rP_FC,rP_batt] = getReward(Q_state_struct,aIdx_fc);
+                reward = ...
+                    simParam.weightSOC*rSOC +...
+                    simParam.weightP_FC*rP_FC +...
+                    simParam.weightP_batt*rP_batt;
                 fprintf('SOC %3.3f\n',Q_state_struct.SOC);
                 systemStatesTab.reward(g) = reward;
+                systemStatesTab.reward_SOC(g) = rSOC;
+                systemStatesTab.reward_P_FC(g) = rP_FC;
+                systemStatesTab.reward_P_batt(g) = rP_batt;
+                
                 
                 % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
                 % Interpolate again to find the new state the system is closest to.
@@ -449,7 +460,7 @@ for episodes = 1:maxEpi
                 % Plotting the result of the episode
                 fig = figure(episodes);
                 
-                subplot(311);
+                subplot(411);
                 h(1) = plot(systemStatesTab.time(2:end),systemStatesTab.SOC_battery(2:end),'.');
                 hold on
                 h(2) = bar(systemStatesTab.time(2:end),systemStatesTab.isExploitationAction(2:end));
@@ -458,19 +469,26 @@ for episodes = 1:maxEpi
                 h(5) = plot(resampledData.time,resampledData.SOC_battery,'-');
                 legend(h([1 2 5]),'Processing point','Exploitation','SOC','Location','southwest');
                 
-                subplot(312)
+                subplot(412)
                 plot(systemStatesTab.time(2:end),systemStatesTab.reward(2:end),'*-');
                 hold on
                 plot(resampledData.time,resampledData.P_Batt,'-');
                 plot(systemStatesTab.time(2:end),systemStatesTab.P_Batt(2:end),'.');
                 legend('Reward','P Batt','Location','southwest');
                 
-                subplot(313);
+                subplot(413);
                 plot(systemStatesTab.time(2:end),systemStatesTab.Setpoint_I_FC(2:end),'.-');
                 hold on
                 plot(resampledData.time,resampledData.P_FC,'-');
                 plot(resampledData.Load_profile,'-');
                 legend('I FC (p.u.)','P FC (p.u.)','Load profile (p.u.)','Location','southwest');
+                
+                subplot(414)
+                plot(systemStatesTab.time(2:end),systemStatesTab.reward_SOC(2:end),'.-');
+                hold on
+                plot(systemStatesTab.time(2:end),systemStatesTab.reward_P_FC(2:end),'.-');
+                plot(systemStatesTab.time(2:end),systemStatesTab.reward_P_batt(2:end),'.-');
+                legend('rSOC','rP FC','rP batt','Location','southwest');
                 
                 drawnow
                 saveas(fig,[resultPath 'episode' num2str(episodes) '.fig']);
@@ -491,9 +509,13 @@ for episodes = 1:maxEpi
             
         catch
             fprintf(resultsReport,'Episode %i: \r\n',episodes);
-            fprintf(resultsReport,'Error occured, restarting the episode\r\n');
+            fprintf(resultsReport,'Error occured, go to next episode\r\n');
             fprintf(resultsReport,'_______________\r\n\r\n');
-            completed = 0;
+            set_param(model,'FastRestart','off');
+            close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
+            load_system(model);
+            set_param(model,'SimulationCommand','update')
+            completed = 1;
         end % end try catch
         
         % Close the model without saving it
