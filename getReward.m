@@ -16,8 +16,10 @@ if (S.SOC <= 0.5) && (actionIdx ~= 3)... % Low SOC and ot incresasing the FC pow
     rSOC = rSOC - 0.2;
 end
 
+rSOC = 0.5 + 0.5*rSOC; % Rescale betwen 0;1 instead of -1;1
+
 % REWARD for the FC power
-if S.P_FC <= 0.7
+if S.P_FC <= 0.8
     rP_FC = 1;
 else
     rP_FC = 0;
