@@ -41,8 +41,8 @@ global inputsFromWS %...Should find solution to avoid it...
 % #########################################################################
 
 Time_steady_Q = [0]; % For how long is the input the same ?
-P_batt_Q = [-1 -0.8 -0.55 -0.25 0.25 0.55 0.8 1];
-P_FC_Q = [0.6 0.8]; % Centered on 0.7 mean P_FC < 0.7 = good else bad
+P_batt_Q =  [-1 -0.8 -0.55 -0.25 0.25 0.55 0.8 1];
+P_FC_Q =  [0.7 0.9]; % Centered on 0.8 mean P_FC < 0.8 = good else bad
 SOC_Q = single(linspace(0.5,1,11)); % Battery state of charge
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
@@ -73,7 +73,6 @@ pause(1)
 % Q matrix:
 % Lines: states | columns: actions
 Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
-% % % % load('Q_learned.mat');
 % % % % Q = repmat(Q,[length(P_FC_Q)*length(P_batt_Q),1]);
 
 % Matrix to keep track of the actions taken (not for calculation)
@@ -135,7 +134,8 @@ maxit = floor(totalTime/iterationTime);
 % stop to avoid modifying the Q-matrix during this period.
 % This buffer contains the load value, and the system is considered to be
 % off when the buffer is only filled with zeros.
-tStopLearning = 5; % Stop the learning 5sec after the system turns off.
+
+tStopLearning = 6; % Stop the learning 5sec after the system turns off.
 loadBufferLength = floor(tStopLearning/iterationTime);
 loadBuffer = ones(loadBufferLength,1)'; % Initialized to 1 to learn at launching.
 loadBufferIdle = zeros(loadBufferLength,1)'; % Buffer to test the equality with.
@@ -180,6 +180,9 @@ fprintf(resultsReport,'Learning rate %2.2f \r\n', learnRate);
 fprintf(resultsReport,'Epsilon start: %2.2f, epsilonDecay %2.7f\r\n',epsilon,epsilonDecay);
 fprintf(resultsReport,'Discount: %3.3f\r\n', discount);
 fprintf(resultsReport,'Number of episodes planned: %i\r\n', maxEpi);
+fprintf(resultsReport,'Weight SOC: %3.3f\r\n',simParam.weightSOC);
+fprintf(resultsReport,'Weight FC power: %3.3f\r\n',simParam.weightP_FC);
+fprintf(resultsReport,'Weight Battery power: %3.3f\r\n',simParam.weightP_batt);
 fprintf(resultsReport,'Total time per episode: %5.1fs, Iteration time: %3.2fs\r\n',totalTime,iterationTime);
 fprintf(resultsReport,'_______________\r\n\r\n');
 
@@ -211,23 +214,27 @@ for episodes = 1:maxEpi
         % NB: At this level is decided the initial condition
         
         % % % %         load('initialState_30Ah.mat');
-        % % % %     load('initialState_1_5Ah.mat');
-        % % % %     inputArray(2) = 10;
+        % % % %             load('initialState_1_5Ah_70.mat');
+        % % % %             inputArray(2) = 10;
         
-        m = mod(episodes,3);
+        m = mod(episodes,5);
         switch m
             case 0
                 load('initialState_1_5Ah_70.mat');
             case 1
-                load('initialState_1_5Ah_95.mat');
+                load('initialState_1_5Ah_100.mat');
             case 2
-                load('initialState_1_5Ah_20.mat');
+                load('initialState_1_5Ah_30.mat');
+            case 3
+                load('initialState_1_5Ah_85.mat');
+            case 4
+                load('initialState_1_5Ah_50.mat');
         end
         
-        n = mod(episodes,7);
+        n = mod(episodes,8);
         switch n
             case 0
-                inputArray(2) = 6; % Sinus period 1sec
+                inputArray(2) = 2; % Full load
             case 1
                 inputArray(2) = 8; % Sinus period 60sec
             case 2
@@ -239,6 +246,8 @@ for episodes = 1:maxEpi
             case 5
                 inputArray(2) = 5; % Pulse 60sec
             case 6
+                inputArray(2) = 10; % Realistic load
+            case 7
                 inputArray(2) = 10; % Realistic load
         end
         
@@ -312,7 +321,7 @@ for episodes = 1:maxEpi
                 % $$$$$$$$$$$$$$$$$    Choose an action    $$$$$$$$$$$$$$$$$$$$$$$$
                 
                 % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).
-                if rand()>epsilon...
+                if rand()>min(1,epsilon)...
                         && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
                         && ((Q(sIdx,1)~=Q(sIdx,2)) && (Q(sIdx,1)~=Q(sIdx,3)))   % Take a random action when all the coefficients are equals
                     
@@ -369,7 +378,8 @@ for episodes = 1:maxEpi
                 
                 % Fill the Q-learning state
                 Q_state_struct.Time_steady = 0; % Not used yet
-                Q_state_struct.P_batt = simOut.outputsToWS.P_batt.Data(end);
+                %                 Q_state_struct.P_batt = simOut.outputsToWS.P_batt.Data(end);
+                Q_state_struct.P_batt = mean(simOut.outputsToWS.P_batt.Data); % Take the average value on the last iteration (kind of LPF for freq. greater than f_learning)
                 Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
                 Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
                 
@@ -395,7 +405,7 @@ for episodes = 1:maxEpi
                 [~,snewIdx] = min(sum((Q_states - repmat(Q_state_array,[size(Q_states,1),1])).^2,2)); % Interpolate again to find the new state the system is closest to.
                 
                 % Update Q
-                Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + learnRate * systemOn * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) ); % The line that makes everything !!!
+                Q(sIdx,aIdx_fc) = Q(sIdx,aIdx_fc) + (1/(Q_visited(sIdx,aIdx_fc)+1)) * systemOn * ( reward + discount*max(Q(snewIdx,:)) - Q(sIdx,aIdx_fc) ); % The line that makes everything !!!
                 fprintf('State index %i\n',sIdx);
                 fprintf('Reward %2.2f\n',reward);
                 fprintf('Q(sIdx,aIdx_fc) %3.2f\n',Q(sIdx,aIdx_fc));
@@ -454,7 +464,7 @@ for episodes = 1:maxEpi
                 resampledData.P_FC = interp1(x,continuousData.P_FC(index),resampledData.time);
                 resampledData.P_Batt = interp1(x,continuousData.P_Batt(index),resampledData.time);
                 resampledData.SOC_battery = interp1(x,continuousData.SOC_battery(index),resampledData.time);
-                resampledData.Load_profile = resample(continuousData.Load_profile,resampledData.time);
+                resampledData.Load_profile = resample(continuousData.Load_profile,(resampledData.time + t_init));
                 resampledData.Stack_efficiency = interp1(x,continuousData.Stack_efficiency(index),resampledData.time);
                 
                 % Plotting the result of the episode
@@ -500,12 +510,12 @@ for episodes = 1:maxEpi
                 save([resultPath 'Q_visited_episode' num2str(episodes) '.mat'],'Q_visited');
                 
                 % Save the data collected
-                save([resultPath 'Data_episode' num2str(episodes) '.mat'],'systemStatesTab');
+                save([resultPath 'Data_episode' num2str(episodes) '.mat'],'systemStatesTab','resampledData');
             else
                 fprintf(resultsReport,'Episode %i: \r\n',episodes);
                 fprintf(resultsReport,'Failure, SOC too close to 0\r\n');
                 fprintf(resultsReport,'_______________\r\n\r\n');
-            end           
+            end
             
         catch
             fprintf(resultsReport,'Episode %i: \r\n',episodes);
