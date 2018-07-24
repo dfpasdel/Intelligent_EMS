@@ -324,6 +324,7 @@ for episodes = 1:maxEpi
                 % $$$$$$$$$$$$$$$$$    Choose an action    $$$$$$$$$$$$$$$$$$$$$$$$
                 
                 % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).
+                rng('shuffle'); % Avoid repeated sequence of random mumbers
                 if rand()>min(1,epsilon)...
                         && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
                         && ((Q(sIdx,1)~=Q(sIdx,2)) && (Q(sIdx,1)~=Q(sIdx,3)))   % Take a random action when all the coefficients are equals
@@ -334,6 +335,7 @@ for episodes = 1:maxEpi
                     
                     % OR 2) Pick a random action (EXPLORATION)
                 else
+                    rng('shuffle'); % Avoid repeated sequence of random mumbers
                     aIdx_fc = randi(size(actions,2),1); % Random action for FC!
                     systemStatesTab.isExploitationAction(g) = 0; % For displaying only
                 end
