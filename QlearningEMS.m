@@ -36,6 +36,9 @@
 function QlearningEMS(simParam,parentFolder)
 global inputsFromWS %...Should find solution to avoid it...
 
+diary % To track the simulink errors
+diary off
+
 % #########################################################################
 % ################                STATES             ######################
 % #########################################################################
@@ -350,9 +353,11 @@ for episodes = 1:maxEpi
                 inputsFromWS.Value = inputArray;
                 
                 % Run ths Simulink model for iterationTime
+                diary on
                 t_SimulinkIterationStart = cputime;
                 [currentSimState,simOut] = run_simulation(model,currentSimState,iterationTime);
                 t_SimulinkTotal = t_SimulinkTotal + cputime - t_SimulinkIterationStart;
+                diary off
                 
                 % Collect the results of the iteration (last value returned by the model):
                 systemStatesTab.P_FC(g)  = simOut.outputsToWS.P_FC.Data(end);
