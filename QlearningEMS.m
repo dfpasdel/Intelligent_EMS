@@ -464,7 +464,7 @@ for episodes = 1:maxEpi
                 resampledData.P_FC = interp1(x,continuousData.P_FC(index),resampledData.time);
                 resampledData.P_Batt = interp1(x,continuousData.P_Batt(index),resampledData.time);
                 resampledData.SOC_battery = interp1(x,continuousData.SOC_battery(index),resampledData.time);
-                resampledData.Load_profile = resample(continuousData.Load_profile,(resampledData.time + t_init));
+                resampledData.Load_profile = resample(continuousData.Load_profile,resampledData.time);
                 resampledData.Stack_efficiency = interp1(x,continuousData.Stack_efficiency(index),resampledData.time);
                 
                 % Plotting the result of the episode
