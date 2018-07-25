@@ -526,13 +526,13 @@ for episodes = 1:maxEpi
             
         catch
             fprintf(resultsReport,'Episode %i: \r\n',episodes);
-            fprintf(resultsReport,'Error occured, restarting episode\r\n');
+            fprintf(resultsReport,'Error occured, go to next episode\r\n');
             fprintf(resultsReport,'_______________\r\n\r\n');
             set_param(model,'FastRestart','off');
             close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
             load_system(model);
             set_param(model,'SimulationCommand','update')
-            completed = 0;
+            completed = 1;
         end % end try catch
         
         % Close the model without saving it
