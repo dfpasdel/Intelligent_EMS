@@ -19,7 +19,7 @@ rSOC = 0.5 + 0.5*rSOC; % Rescale betwen [0;1] instead of [-1;1]
 
 % Create a coefficient to be multiplicated with Battery and FC power
 % rewards to avoid interferences when SOC is bad.
-coef = 1.75 - abs(S.SOC-SOCtarget);
+coef = 1.75 - abs(S.SOC-SOCtarget)*10eward;
 coef = max(0,coef);
 coef = min(1,coef);
 
