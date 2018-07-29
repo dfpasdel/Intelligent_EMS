@@ -9,11 +9,13 @@ function [rSOC,rP_FC,rP_batt] = getReward(S,actionIdx)
 
 % REWARD for the SOC:
 SOCtarget = 0.7;
-rSOC = 1 - abs(S.SOC-SOCtarget)/0.15;
-rSOC = max(rSOC,-0.8);
-if (S.SOC <= 0.5) && (actionIdx ~= 3)... % Low SOC and ot incresasing the FC power
-        || (S.SOC >= 0.9) && (actionIdx ~= 2) % High SOC and not decreasing the FC power
-    rSOC = rSOC - 0.2;
+rSOC = 0.5 - abs(S.SOC-SOCtarget)/0.3;
+if (S.SOC >= 0.65) && (S.SOC <= 0.75) && (actionIdx == 1)
+    rSOC = rSOC * 2;
+end      
+if (S.SOC <= 0.55) && (actionIdx ~= 3)... % Low SOC and ot incresasing the FC power
+        || (S.SOC >= 0.85) && (actionIdx ~= 2) % High SOC and not decreasing the FC power
+    rSOC = rSOC * 2;
 end
 rSOC = 0.5 + 0.5*rSOC; % Rescale betwen [0;1] instead of [-1;1]
 
