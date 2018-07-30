@@ -41,5 +41,7 @@ rP_batt = rP_batt * coef;
 
 % REWARD for steady input
 rSteady = 0.2 * (S.Time_steady - 4);
+rSteady = max(rSteady,0);
+rSteady = min(rSteady,1);
 rSteady = rSteady * coef;
 end
