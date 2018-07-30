@@ -46,7 +46,7 @@ diary off
 Time_steady_Q = [0]; % For how long is the input the same ?
 P_batt_Q =  [-1 -0.8 -0.55 -0.25 0.25 0.55 0.8 1];
 P_FC_Q =  [0.7 0.9]; % Centered on 0.8 mean P_FC < 0.8 = good else bad
-SOC_Q = single(linspace(0.5,1,11)); % Battery state of charge
+SOC_Q = single(linspace(0.4,1,13)); % Battery state of charge
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
 
@@ -234,25 +234,28 @@ for episodes = 1:maxEpi
                 load('initialState_1_5Ah_50.mat');
         end
         
-        n = mod(episodes,8);
-        switch n
-            case 0
-                inputArray(2) = 2; % Full load
-            case 1
-                inputArray(2) = 8; % Sinus period 60sec
-            case 2
-                inputArray(2) = 7; % Sinus period 5sec
-            case 3
-                inputArray(2) = 1; % 50% constant load
-            case 4
-                inputArray(2) = 4; % Pulse 5sec
-            case 5
-                inputArray(2) = 5; % Pulse 60sec
-            case 6
-                inputArray(2) = 10; % Realistic load
-            case 7
-                inputArray(2) = 10; % Realistic load
-        end
+        inputArray(2) = 10;
+        
+        
+% % % %         n = mod(episodes,8);
+% % % %         switch n
+% % % %             case 0
+% % % %                 inputArray(2) = 2; % Full load
+% % % %             case 1
+% % % %                 inputArray(2) = 8; % Sinus period 60sec
+% % % %             case 2
+% % % %                 inputArray(2) = 7; % Sinus period 5sec
+% % % %             case 3
+% % % %                 inputArray(2) = 1; % 50% constant load
+% % % %             case 4
+% % % %                 inputArray(2) = 4; % Pulse 5sec
+% % % %             case 5
+% % % %                 inputArray(2) = 5; % Pulse 60sec
+% % % %             case 6
+% % % %                 inputArray(2) = 10; % Realistic load
+% % % %             case 7
+% % % %                 inputArray(2) = 10; % Realistic load
+% % % %         end
         
         % Loading the SimState
         currentSimState = initialSimState;
