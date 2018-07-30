@@ -43,7 +43,7 @@ diary off
 % ################                STATES             ######################
 % #########################################################################
 
-Time_steady_Q = [0]; % For how long is the input the same ?
+Time_steady_Q = [5 8]; % For how long is the input the same ?
 P_batt_Q =  [-1 -0.8 -0.55 -0.25 0.25 0.55 0.8 1];
 P_FC_Q =  [0.7 0.9]; % Centered on 0.8 mean P_FC < 0.8 = good else bad
 SOC_Q = single(linspace(0.4,1,13)); % Battery state of charge
@@ -158,6 +158,7 @@ systemStatesTab = struct(...
     ,'reward_SOC',zeros(maxit+1,1)...
     ,'reward_P_FC',zeros(maxit+1,1)...
     ,'reward_P_batt',zeros(maxit+1,1)...
+    ,'reward_Steady',zeros(maxit+1,1)...
     ,'reward',zeros(maxit+1,1));
 % NOTE: This structure is overwritten each iteration.
 % Has one more line than the number of iteration to include the initial
@@ -203,10 +204,10 @@ for episodes = 1:maxEpi
     continuousData.Load_profile = timeseries();
     continuousData.Stack_efficiency = [];
     
-    % Is the episode finished properly ?
-    completed = false;
-    
-    while ~completed
+% % % %     % Is the episode finished properly ?
+% % % %     completed = false;
+% % % %     
+% % % %     while ~completed
         % $$$$$$$$$$$$$$$     INITIALIZE THE EPISODE      $$$$$$$$$$$$$$$$$$$$$
         
         % Measure the simulation time
@@ -291,10 +292,14 @@ for episodes = 1:maxEpi
             'SaveCompleteFinalSimState','on','LoadInitialState','on');
         set_param(model,'SimulationMode','accelerator');
         set_param(model,'FastRestart','on'); % No recompllling of the model between iterations
+ 
+        % Initialize the value recording the number of constant actions
+        % take in a row:
+        timeSteady = 0;
         
         % Starting point
         Q_state_struct = struct(...
-            'Time_steady',0,...
+            'Time_steady',timeSteady,...
             'P_batt',initial_outputsToWS.P_batt,...
             'P_FC',initial_outputsToWS.P_FC,...
             'SOC',initial_outputsToWS.SOC);
@@ -309,8 +314,11 @@ for episodes = 1:maxEpi
         % Initialize boolean for the case SOC < 10% (causing crash in simulink)
         lowSOC = 0;
         
+        % Initialize the number of "forced" constant actions
+        steadyCounter = 0;
         
-        try % If error, restart the episode
+        
+% % % %         try % If error, restart the episode
             
             for h = 1:maxit
                 g = h + 1; % Do not write the first line (initial values)
@@ -328,19 +336,42 @@ for episodes = 1:maxEpi
                 
                 % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).
                 rng('shuffle'); % Avoid repeated sequence of random mumbers
-                if rand()>min(1,epsilon)...
-                        && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
-                        && ((Q(sIdx,1)~=Q(sIdx,2)) && (Q(sIdx,1)~=Q(sIdx,3)))   % Take a random action when all the coefficients are equals
-                    
-                    [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
-                    systemStatesTab.isExploitationAction(g) = 0.2; % For displaying only
-                    nExploitation = nExploitation + 1;
-                    
-                    % OR 2) Pick a random action (EXPLORATION)
+                if steadyCounter <= 0  % Are we in a sequence of forced constant actions ? Negative means no
+                    if rand()>min(1,epsilon)...
+                            && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
+                            && ((Q(sIdx,1)~=Q(sIdx,2)) && (Q(sIdx,1)~=Q(sIdx,3)))   % Take a random action when all the coefficients are equals
+                        
+                        [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
+                        systemStatesTab.isExploitationAction(g) = 0.2; % For displaying only
+                        nExploitation = nExploitation + 1;
+                        
+                        % OR 2) Pick a random action (EXPLORATION)
+                    else
+                        
+                        rng('shuffle'); % Avoid repeated sequence of random mumbers
+                        if rand()<0.9 % Take a random action following the normal process
+                            rng('shuffle'); % Avoid repeated sequence of random mumbers
+                            aIdx_fc = randi(size(actions,2),1); % Random action for FC!
+                            systemStatesTab.isExploitationAction(g) = 0; % For displaying only
+                        else % Trigger a sequence of n consecutive constant actions (i.e. help the system to learn how to keep constant input)
+                            steadyCounter = 8; % The length of the sequence of constant actions
+                            systemStatesTab.isExploitationAction(g) = -0.2; % For displaying only
+                            steadyCounter = steadyCounter - 1;
+                            aIdx_fc = 1;
+                        end
+                    end
+                else % Continue the sequence of consecutive constant actions
+                    systemStatesTab.isExploitationAction(g) = -0.2; % For displaying only
+                    steadyCounter = steadyCounter - 1;
+                    aIdx_fc = 1;
+                end
+                
+                % Count the number of times the input is constant for
+                % rewarding:
+                if aIdx_fc == 1
+                    timeSteady = timeSteady + 1; % Time means number of iterations
                 else
-                    rng('shuffle'); % Avoid repeated sequence of random mumbers
-                    aIdx_fc = randi(size(actions,2),1); % Random action for FC!
-                    systemStatesTab.isExploitationAction(g) = 0; % For displaying only
+                    timeSteady = 0;
                 end
                 
                 % $$$$$$$$$$$$$$$$$    Run the model    $$$$$$$$$$$$$$$$$$$$$$$$$$$
@@ -387,8 +418,7 @@ for episodes = 1:maxEpi
                 
                 
                 % Fill the Q-learning state
-                Q_state_struct.Time_steady = 0; % Not used yet
-                %                 Q_state_struct.P_batt = simOut.outputsToWS.P_batt.Data(end);
+                Q_state_struct.Time_steady = timeSteady;
                 Q_state_struct.P_batt = mean(simOut.outputsToWS.P_batt.Data); % Take the average value on the last iteration (kind of LPF for freq. greater than f_learning)
                 Q_state_struct.P_FC = simOut.outputsToWS.P_FC.Data(end);
                 Q_state_struct.SOC = simOut.outputsToWS.SOC.Data(end);
@@ -398,16 +428,18 @@ for episodes = 1:maxEpi
                 Q_state_array = transpose(cell2mat(struct2cell(Q_state_struct)));
                 
                 % $$$$$$$$$$$$$$$$    Calculate the reward     $$$$$$$$$$$$$$$$$$$$
-                [rSOC,rP_FC,rP_batt] = getReward(Q_state_struct,aIdx_fc);
+                [rSOC,rP_FC,rP_batt,rSteady] = getReward(Q_state_struct,aIdx_fc);
                 reward = ...
                     simParam.weightSOC*rSOC +...
                     simParam.weightP_FC*rP_FC +...
-                    simParam.weightP_batt*rP_batt;
+                    simParam.weightP_batt*rP_batt +...
+                    simParam.weightSteady*rSteady;
                 fprintf('SOC %3.3f\n',Q_state_struct.SOC);
                 systemStatesTab.reward(g) = reward;
                 systemStatesTab.reward_SOC(g) = rSOC;
                 systemStatesTab.reward_P_FC(g) = rP_FC;
                 systemStatesTab.reward_P_batt(g) = rP_batt;
+                systemStatesTab.reward_Steady(g) = rSteady;
                 
                 
                 % $$$$$$$$$$$$$$$$   Update the Q-matrix    $$$$$$$$$$$$$$$$$$$$$$$
@@ -436,8 +468,8 @@ for episodes = 1:maxEpi
             end % end iterations counting for single episode
             
             
-            % The episode finished properly if this point is reached
-            completed = 1;
+% % % %             % The episode finished properly if this point is reached
+% % % %             completed = 1;
             
             
             % $$$$$$$$$$$$$$$$       PLOTTING       $$$$$$$$$$$$$$$$$$$$$$$
@@ -508,7 +540,8 @@ for episodes = 1:maxEpi
                 hold on
                 plot(systemStatesTab.time(2:end),systemStatesTab.reward_P_FC(2:end),'.-');
                 plot(systemStatesTab.time(2:end),systemStatesTab.reward_P_batt(2:end),'.-');
-                legend('rSOC','rP FC','rP batt','Location','southwest');
+                plot(systemStatesTab.time(2:end),systemStatesTab.reward_Steady(2:end),'.-');
+                legend('rSOC','rP FC','rP batt','rSteady','Location','southwest');
                 
                 drawnow
                 saveas(fig,[resultPath 'episode' num2str(episodes) '.fig']);
@@ -527,22 +560,22 @@ for episodes = 1:maxEpi
                 fprintf(resultsReport,'_______________\r\n\r\n');
             end
             
-        catch
-            fprintf(resultsReport,'Episode %i: \r\n',episodes);
-            fprintf(resultsReport,'Error occured, go to next episode\r\n');
-            fprintf(resultsReport,'_______________\r\n\r\n');
-            set_param(model,'FastRestart','off');
-            close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
-            load_system(model);
-            set_param(model,'SimulationCommand','update')
-            completed = 1;
-        end % end try catch
+% % % %         catch
+% % % %             fprintf(resultsReport,'Episode %i: \r\n',episodes);
+% % % %             fprintf(resultsReport,'Error occured, go to next episode\r\n');
+% % % %             fprintf(resultsReport,'_______________\r\n\r\n');
+% % % %             set_param(model,'FastRestart','off');
+% % % %             close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
+% % % %             load_system(model);
+% % % %             set_param(model,'SimulationCommand','update')
+% % % %             completed = 1;
+% % % %         end % end try catch
         
         % Close the model without saving it
         set_param(model,'FastRestart','off');
         close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
         
-    end % end while episode not completed
+% % % %     end % end while episode not completed
 end % end episodes counting
 
 % Close the text file

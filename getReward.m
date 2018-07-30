@@ -1,4 +1,4 @@
-function [rSOC,rP_FC,rP_batt] = getReward(S,actionIdx)
+function [rSOC,rP_FC,rP_batt,rSteady] = getReward(S,actionIdx)
 % DESCRIPTION:
 % Takes the Q-state as input and returns a reward as output.
 % NOTE: 
@@ -39,4 +39,7 @@ rP_batt = min(1,rP_batt);
 rP_batt = max(0,rP_batt);
 rP_batt = rP_batt * coef;
 
+% REWARD for steady input
+rSteady = 0.2 * (S.Time_steady - 4);
+rSteady = rSteady * coef;
 end
