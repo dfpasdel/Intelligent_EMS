@@ -3,7 +3,7 @@
 % condition Pload=Pfc+Pbatt
 %
 % INPUTS:
-% Initial state of the DC grid as a .mat file. 
+% Initial state of the DC grid as a .mat file. %add me 
 % The initial state contains the folowing data:
 %   - General state of the DC grid: Matlab SimState file
 %   - The model constants (e.g. nominal volatge, battery capacity...)
