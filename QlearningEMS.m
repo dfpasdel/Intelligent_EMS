@@ -1,54 +1,114 @@
+% DESCRIPTION:
 % Energy Management System based on Machine Learning theory (reinforcment
 % learning) for a DC grid. The main source of power is a fuel-cell and a
 % battery is connected to the grid to supply fast load changes (the slow
 % dynamics of the FC cannot supply fast load changes).
 % The aim of machine learning is to make the grid more efficient (by
 % minimizing the losses in converters and battery for example) and to
-% increase lifecycle of the system by reducing stress on conponents.
-
-% DESCRIPTION:
+% increase lifecycle of the system by reducing stress on components.
+%
 % Goal 1: Ensure the power supply at any time (done by the hardware, not
 % related to ML)
 % Goal 2: Maintain the State of Charge of the battery in [SOCmin;SOCmax].
 % Goal 3: Minimize fuel consumption of the grid.
+% Goal 3bis: Minimize stress on conponents (increase lifetime)
 
 % NOTE:
-% The Q-learning script is written in per-unit. The outputs of the simulink
-% model are in p.u.
+% For reusability, all the script is written in p.u.
+% The conversion to international system values is done in a dedicated
+% block of the Simulink model.
 
 % INPUT:
 % Structure containing the parameters for simulation following this
 % pattern:
-%                 simParam = struct(...
-%                     'model','DC_grid_V2',...
-%                     'maxEpi',2,...
-%                     'totalTime',20,...
-%                     'iterationTime',1.3,...
-%                     'learnRate',0.99,...
-%                     'epsilon',0.5,...
-%                     'epsilonDecay',0.9996,...
-%                     'discount',0.9,...
-%                     'successRate',1,...
-%                     'rewardCurveSOC','rewardCurveSOC.mat',...
-%                     'subFolder','simulation1'...
-%                     );
+%             simParam = struct(...
+%                 'model','DC_grid_V2',...
+%                 'maxEpi',1000,...
+%                 'totalTime',1800,...
+%                 'iterationTime',2.6,...
+%                 'learnRate',0.1,...
+%                 'epsilon',2,...
+%                 'epsilonDecay',0.99994,...
+%                 'discount',0.999,...
+%                 'successRate',1,...
+%                 'weightSOC',1,...
+%                 'weightP_FC',1,...
+%                 'weightP_batt',2,...
+%                 'weightSteady',1,...
+%                 'parentFolder','3_august',...
+%                 'subFolder','Constant_command_forced'...
+%                 );
 
-function QlearningEMS(simParam,parentFolder)
+% STATUS:
+% The function is working fine (no harmful errors detected)
+% Two knowed points to improve or fix:
+% - Avoid the use of global variables and set the parallel computing
+%   framework
+% - Fix the issue of the plotting during the 10 first seconds (see plot for
+%   details)
+% - The function is sometimes crashing at the 4th episode because of the
+%   realistic load in Simulink. Solved by restarting Matlab, or by fixing
+%   the problem (not done yet)
+
+function QlearningEMS(simParam)
+
 global inputsFromWS %...Should find solution to avoid it...
+% Having a global variable is not very good practice, but it helped here to
+% gain time...
+% Global variable does not allow parallel computing, which is a big
+% limitation for this script.
 
-diary % To track the simulink errors
+
+% Create a diary to track only the Simulink errors (the script is supposed
+% to work properly)
+diary
 diary off
 
 % #########################################################################
 % ################                STATES             ######################
 % #########################################################################
 
-Time_steady_Q = [5 8]; % For how long is the input the same ?
-P_batt_Q =  [-1 -0.8 -0.55 -0.25 0.25 0.55 0.8 1];
-P_FC_Q =  [0.7 0.9]; % Centered on 0.8 mean P_FC < 0.8 = good else bad
-SOC_Q = single(linspace(0.4,1,13)); % Battery state of charge
+% The states can be weighted from the calling script. If weight equals to
+% zero, the state should not be considered.
+
+% Initialize all the states as if they were not used:
 % The suffix _Q is added to emphasize that this is the state used in the
 % Q-learning calculation
+Time_steady_Q = [0];
+P_batt_Q = [0];
+P_FC_Q = [0];
+% SOC_Q = [0];
+
+% Booleans for rewarding (initialized to false)
+isTimeSteadyConsidered = 0;
+isP_battConsidered = 0;
+isP_FCConsidered = 0;
+
+if simParam.weightSteady ~= 0
+    Time_steady_Q = [5 8]; % For how long is the input the same ?
+    isTimeSteadyConsidered = 1;
+    probability_Forced_Constant_Sequence = 0.15; % Help to learn taking more constant actions during decay phase [0;1]
+else
+    probability_Forced_Constant_Sequence = 0;
+end
+
+if simParam.weightP_batt ~= 0
+    P_batt_Q =  [-1 -0.8 -0.55 -0.25 0.25 0.55 0.8 1];
+    isP_battConsidered = 1;
+end
+
+if simParam.weightP_FC ~= 0
+    P_FC_Q = [0.7 0.9]; % Centered on 0.8 mean P_FC < 0.8 = good else bad
+    isP_FCConsidered = 1;
+end
+
+if simParam.weightSOC ~= 0
+    SOC_Q = single(linspace(0.4,1,13)); % Battery state of charge
+    % The SOC is always considered
+else
+    error('Error: SOC must be controlled, weight cannot be equal to 0');
+end
+
 
 % Generate a state list
 % 3 Column matrix of all possible combinations of the discretized state.
@@ -69,17 +129,11 @@ for j=1:length(Time_steady_Q)
         end
     end
 end
+
+% Assign the Q-state matrix in the base WS (for user analysis, not used for
+% ML calculation)
 assignin('base','Q_states',Q_states);
-pause(1)
 
-
-% Q matrix:
-% Lines: states | columns: actions
-Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
-% % % % Q = repmat(Q,[length(P_FC_Q)*length(P_batt_Q),1]);
-
-% Matrix to keep track of the actions taken (not for calculation)
-Q_visited = zeros(size(Q));
 
 
 % #########################################################################
@@ -89,7 +143,26 @@ Q_visited = zeros(size(Q));
 % The only action on the grid from the EMS is on the FC current.
 dI_FC_Q=0.2; %p.u.
 actions=[0 -dI_FC_Q dI_FC_Q];
-% NB: Must be consistent with the number of rows in the Q-matrix
+% NB: Must be consistent with the number of columns in the Q-matrix
+
+
+% #########################################################################
+% ###############                AGENT               ######################
+% #########################################################################
+
+% Q matrix:
+% Lines: states | columns: actions (same number than above)
+Q = repmat(zeros(size(Q_states,1),1,'single'),[1,3]);
+
+% The Q matrix can also be charged from previous simulations here with the
+% load() function
+
+% Matrix to keep track of the actions taken.
+% Used for the adaptative learning rate calculation ("Average Q factor
+% method")
+Q_visited = zeros(size(Q));
+
+
 
 % #########################################################################
 % ###############          Q-learning SETTINGS         ####################
@@ -115,13 +188,14 @@ epsilon = simParam.epsilon; % Initial value generaly equal to 0.5
 epsilonDecay = simParam.epsilonDecay; % Decay factor per iteration
 
 % Future vs present value
-discount = simParam.discount; %0.9;
+% Should be close to 1 (e.g. 0.999) for the maximum learning time horizon
+discount = simParam.discount;
 
 % Inject some noise?
 successRate = simParam.successRate; % No noise : 1
 
 % Where to store the results
-resultPath = [parentFolder '\' simParam.subFolder '\'];
+resultPath = [simParam.parentFolder '\' simParam.subFolder '\'];
 mkdir(resultPath);
 
 
@@ -129,16 +203,16 @@ mkdir(resultPath);
 % ################      INITIALIZE THE SIMULATION     #####################
 % #########################################################################
 
-% Calculates the number of iterations
+% Calculates the number of iterations (must be integer)
 maxit = floor(totalTime/iterationTime);
 
 % Buffer load profile.
-% When the system is off for more than tStopLearning, the learning should
+% When the system is off for longer than tStopLearning, the learning should
 % stop to avoid modifying the Q-matrix during this period.
 % This buffer contains the load value, and the system is considered to be
-% off when the buffer is only filled with zeros.
+% off when the buffer is only filled with zeros (and the SOC not low).
 
-tStopLearning = 6; % Stop the learning 5sec after the system turns off.
+tStopLearning = 6; % Stop the learning 6sec after the system turns off.
 loadBufferLength = floor(tStopLearning/iterationTime);
 loadBuffer = ones(loadBufferLength,1)'; % Initialized to 1 to learn at launching.
 loadBufferIdle = zeros(loadBufferLength,1)'; % Buffer to test the equality with.
@@ -161,8 +235,9 @@ systemStatesTab = struct(...
     ,'reward_Steady',zeros(maxit+1,1)...
     ,'reward',zeros(maxit+1,1));
 % NOTE: This structure is overwritten each iteration.
-% Has one more line than the number of iteration to include the initial
-% state, and then generate rate of changes.
+% Has one more comumn than the number of iteration to include the initial
+% state, and then generate rate of changes (feature used in previous
+% versions).
 
 % Empty structure containing continuous datas for one episode (filled with
 % data collected all along the iteration)
@@ -173,7 +248,8 @@ continuousData = struct(...
     ,'SOC_battery',[]...
     ,'Load_profile',timeseries()...
     ,'Stack_efficiency',[]);
-% The size of this structure is unknown (depending on auto time step)
+% The size of this structure is unknown (depending on Simulink auto time
+% step solver)
 
 % Initialize a .txt file containing relevant datas
 delete([resultPath 'results.txt']);
@@ -187,6 +263,7 @@ fprintf(resultsReport,'Number of episodes planned: %i\r\n', maxEpi);
 fprintf(resultsReport,'Weight SOC: %3.3f\r\n',simParam.weightSOC);
 fprintf(resultsReport,'Weight FC power: %3.3f\r\n',simParam.weightP_FC);
 fprintf(resultsReport,'Weight Battery power: %3.3f\r\n',simParam.weightP_batt);
+fprintf(resultsReport,'Weight Steady power: %3.3f\r\n',simParam.weightSteady);
 fprintf(resultsReport,'Total time per episode: %5.1fs, Iteration time: %3.2fs\r\n',totalTime,iterationTime);
 fprintf(resultsReport,'_______________\r\n\r\n');
 
@@ -196,7 +273,7 @@ fprintf(resultsReport,'_______________\r\n\r\n');
 
 for episodes = 1:maxEpi
     
-    % Reinitialize the time vector for cintinuous data:
+    % Reinitialize the time vector for continuous data at each episode:
     continuousData.time = [];
     continuousData.P_FC = [];
     continuousData.P_Batt = [];
@@ -204,10 +281,12 @@ for episodes = 1:maxEpi
     continuousData.Load_profile = timeseries();
     continuousData.Stack_efficiency = [];
     
-% % % %     % Is the episode finished properly ?
-% % % %     completed = false;
-% % % %     
-% % % %     while ~completed
+    
+    % Is the episode finished properly ?
+    % Feature currently not useful, but might be necessary later
+    completed = false; % Boolean checking the completion of the episode
+    
+    while ~completed
         % $$$$$$$$$$$$$$$     INITIALIZE THE EPISODE      $$$$$$$$$$$$$$$$$$$$$
         
         % Measure the simulation time
@@ -217,10 +296,8 @@ for episodes = 1:maxEpi
         % Load the initial conditions and set the load profile
         % NB: At this level is decided the initial condition
         
-        % % % %         load('initialState_30Ah.mat');
-        % % % %             load('initialState_1_5Ah_70.mat');
-        % % % %             inputArray(2) = 10;
         
+        % % % %         load('initialState_30Ah.mat');
         m = mod(episodes,5);
         switch m
             case 0
@@ -235,28 +312,28 @@ for episodes = 1:maxEpi
                 load('initialState_1_5Ah_50.mat');
         end
         
-        inputArray(2) = 10;
+        inputArray(2) = 10; % Realistic load profile
         
-        
-% % % %         n = mod(episodes,8);
-% % % %         switch n
-% % % %             case 0
-% % % %                 inputArray(2) = 2; % Full load
-% % % %             case 1
-% % % %                 inputArray(2) = 8; % Sinus period 60sec
-% % % %             case 2
-% % % %                 inputArray(2) = 7; % Sinus period 5sec
-% % % %             case 3
-% % % %                 inputArray(2) = 1; % 50% constant load
-% % % %             case 4
-% % % %                 inputArray(2) = 4; % Pulse 5sec
-% % % %             case 5
-% % % %                 inputArray(2) = 5; % Pulse 60sec
-% % % %             case 6
-% % % %                 inputArray(2) = 10; % Realistic load
-% % % %             case 7
-% % % %                 inputArray(2) = 10; % Realistic load
-% % % %         end
+        % Uncomment this to learn with other load profiles:
+        %         n = mod(episodes,8);
+        %         switch n
+        %             case 0
+        %                 inputArray(2) = 2; % Full load
+        %             case 1
+        %                 inputArray(2) = 8; % Sinus period 60sec
+        %             case 2
+        %                 inputArray(2) = 7; % Sinus period 5sec
+        %             case 3
+        %                 inputArray(2) = 1; % 50% constant load
+        %             case 4
+        %                 inputArray(2) = 4; % Pulse 5sec
+        %             case 5
+        %                 inputArray(2) = 5; % Pulse 60sec
+        %             case 6
+        %                 inputArray(2) = 10; % Realistic load
+        %             case 7
+        %                 inputArray(2) = 10; % Realistic load
+        %         end
         
         % Loading the SimState
         currentSimState = initialSimState;
@@ -266,35 +343,29 @@ for episodes = 1:maxEpi
         
         % Charge the input for initial time: inputArray
         % (the input cannot ba calculated for initial time)
-        % Row 1: Command for the FC current at the bus interface (i.e. between
+        % Column 1: Command for the FC current at the bus interface (i.e. between
         %        DC/DC conveter and bus. Unit is p.u. (base is the load).
-        % Row 2: Load profile (code for each profile)
+        % Column 2: Load profile (code for each profile)
         inputsFromWS = Simulink.Parameter(inputArray);
         inputsFromWS.StorageClass='ExportedGlobal';
         %...should find how to avoid global...
         
         
-        
-        
-        
-        
         % Initialize the the model constants to ensure consistency with the
         % initialization phase
-        % (model_constants loaded a few lines above)
+        % (model_constants loaded above)
         initialize_model_constants(model,model_constants);
         
         % Open the model and set the simulation modes
         % NB: At this point, the initial state must be known
         load_system(model);
-        % set_param(model,'FastRestart','off'); % Supposed to be 'off' at the
-        % end of "initialize_model_constants(model,model_constants)"
         set_param(model,'SaveFinalState','on','FinalStateName','myOperPoint',...
             'SaveCompleteFinalSimState','on','LoadInitialState','on');
         set_param(model,'SimulationMode','accelerator');
         set_param(model,'FastRestart','on'); % No recompllling of the model between iterations
- 
+        
         % Initialize the value recording the number of constant actions
-        % take in a row:
+        % taken in a row (to fill the state):
         timeSteady = 0;
         
         % Starting point
@@ -307,19 +378,22 @@ for episodes = 1:maxEpi
         % Convert the structure to array for use in the Q-learning calculation
         Q_state_array = transpose(cell2mat(struct2cell(Q_state_struct)));
         
-        % Number of exploitation actions (non-random actions) for result
-        % analysis
+        % Number of exploitation actions (non-random actions)
+        % For result analysis (not for ML calculation)
         nExploitation = 0;
         
         % Initialize boolean for the case SOC < 10% (causing crash in simulink)
         lowSOC = 0;
         
         % Initialize the number of "forced" constant actions
+        % Used during the decay phase, to teach the agent how to take
+        % sequence of constant inputs
         steadyCounter = 0;
         
         
-% % % %         try % If error, restart the episode
+        try % Allow error during episode without compromising the next episodes
             
+            % Go for one episode of maxit iterations
             for h = 1:maxit
                 g = h + 1; % Do not write the first line (initial values)
                 fprintf('Episode n.%i, iteration n.%i/%i\n',episodes,h,maxit);
@@ -329,17 +403,20 @@ for episodes = 1:maxEpi
                 % choosing the action. We do not actually change the state by doing
                 % this!)
                 [~,sIdx] = min(sum((Q_states - repmat(Q_state_array,[size(Q_states,1),1])).^2,2));
-                % sIdx is the index of the state matrix corresponding the best to
+                % sIdx is the line index of the state matrix corresponding the best to
                 % the current_state.
                 
                 % $$$$$$$$$$$$$$$$$    Choose an action    $$$$$$$$$$$$$$$$$$$$$$$$
                 
-                % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).
+                
                 rng('shuffle'); % Avoid repeated sequence of random mumbers
+                
                 if steadyCounter <= 0  % Are we in a sequence of forced constant actions ? Negative means no
-                    if rand()>min(1,epsilon)...
+                    
+                    % EITHER 1) pick the best action according the Q matrix (EXPLOITATION).
+                    if rand()>min(1,epsilon)... % Probability of aking an exploitation action according to the decay
                             && rand()<=successRate... % Fail the check if our action doesn't succeed (i.e. simulating noise)
-                            && ((Q(sIdx,1)~=Q(sIdx,2)) && (Q(sIdx,1)~=Q(sIdx,3)))   % Take a random action when all the coefficients are equals
+                            && ((Q(sIdx,1)~=Q(sIdx,2)) && (Q(sIdx,1)~=Q(sIdx,3)))   % Take a random action when all the action coefficients are equals
                         
                         [~,aIdx_fc] = max(Q(sIdx,:)); % Pick the action (for the FC current) the Q matrix thinks is best
                         systemStatesTab.isExploitationAction(g) = 0.2; % For displaying only
@@ -347,19 +424,19 @@ for episodes = 1:maxEpi
                         
                         % OR 2) Pick a random action (EXPLORATION)
                     else
-                        
                         rng('shuffle'); % Avoid repeated sequence of random mumbers
-                        if rand()<0.9 % Take a random action following the normal process
+                        if rand()<(1-probability_Forced_Constant_Sequence) % Take a random action following the normal process
                             rng('shuffle'); % Avoid repeated sequence of random mumbers
                             aIdx_fc = randi(size(actions,2),1); % Random action for FC!
                             systemStatesTab.isExploitationAction(g) = 0; % For displaying only
                         else % Trigger a sequence of n consecutive constant actions (i.e. help the system to learn how to keep constant input)
-                            steadyCounter = 8; % The length of the sequence of constant actions
+                            steadyCounter = 8; % The length of the sequence of constant actions we want to force
                             systemStatesTab.isExploitationAction(g) = -0.2; % For displaying only
                             steadyCounter = steadyCounter - 1;
                             aIdx_fc = 1;
                         end
                     end
+                    
                 else % Continue the sequence of consecutive constant actions
                     systemStatesTab.isExploitationAction(g) = -0.2; % For displaying only
                     steadyCounter = steadyCounter - 1;
@@ -367,12 +444,13 @@ for episodes = 1:maxEpi
                 end
                 
                 % Count the number of times the input is constant for
-                % rewarding:
+                % rewarding (for both exploration and exploitation).
                 if aIdx_fc == 1
                     timeSteady = timeSteady + 1; % Time means number of iterations
                 else
                     timeSteady = 0;
                 end
+                
                 
                 % $$$$$$$$$$$$$$$$$    Run the model    $$$$$$$$$$$$$$$$$$$$$$$$$$$
                 
@@ -431,11 +509,13 @@ for episodes = 1:maxEpi
                 [rSOC,rP_FC,rP_batt,rSteady] = getReward(Q_state_struct,aIdx_fc);
                 reward = ...
                     simParam.weightSOC*rSOC +...
-                    simParam.weightP_FC*rP_FC +...
-                    simParam.weightP_batt*rP_batt +...
-                    simParam.weightSteady*rSteady;
+                    simParam.weightP_FC*isP_FCConsidered*rP_FC +...
+                    simParam.weightP_batt*isP_battConsidered*rP_batt +...
+                    simParam.weightSteady*isTimeSteadyConsidered*rSteady;
                 fprintf('SOC %3.3f\n',Q_state_struct.SOC);
                 systemStatesTab.reward(g) = reward;
+                % Save rewards individualy to evaluate the quality of the
+                % policy regarding a single criterion:
                 systemStatesTab.reward_SOC(g) = rSOC;
                 systemStatesTab.reward_P_FC(g) = rP_FC;
                 systemStatesTab.reward_P_batt(g) = rP_batt;
@@ -452,7 +532,7 @@ for episodes = 1:maxEpi
                 fprintf('Reward %2.2f\n',reward);
                 fprintf('Q(sIdx,aIdx_fc) %3.2f\n',Q(sIdx,aIdx_fc));
                 
-                % Make the action visited (for analysis)
+                % Make the action visited one more time
                 Q_visited(sIdx,aIdx_fc) = Q_visited(sIdx,aIdx_fc) + 1;
                 
                 % Decay the odds of picking a random action vs picking the
@@ -468,8 +548,8 @@ for episodes = 1:maxEpi
             end % end iterations counting for single episode
             
             
-% % % %             % The episode finished properly if this point is reached
-% % % %             completed = 1;
+            % The episode finished properly if this point is reached
+            completed = 1;
             
             
             % $$$$$$$$$$$$$$$$       PLOTTING       $$$$$$$$$$$$$$$$$$$$$$$
@@ -560,22 +640,22 @@ for episodes = 1:maxEpi
                 fprintf(resultsReport,'_______________\r\n\r\n');
             end
             
-% % % %         catch
-% % % %             fprintf(resultsReport,'Episode %i: \r\n',episodes);
-% % % %             fprintf(resultsReport,'Error occured, go to next episode\r\n');
-% % % %             fprintf(resultsReport,'_______________\r\n\r\n');
-% % % %             set_param(model,'FastRestart','off');
-% % % %             close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
-% % % %             load_system(model);
-% % % %             set_param(model,'SimulationCommand','update')
-% % % %             completed = 1;
-% % % %         end % end try catch
+        catch
+            fprintf(resultsReport,'Episode %i: \r\n',episodes);
+            fprintf(resultsReport,'Error occured, go to next episode\r\n');
+            fprintf(resultsReport,'_______________\r\n\r\n');
+            set_param(model,'FastRestart','off');
+            close_system(model,0);
+            load_system(model);
+            set_param(model,'SimulationCommand','update')
+            completed = 1;
+        end % end try catch
         
         % Close the model without saving it
         set_param(model,'FastRestart','off');
         close_system(model,0); % Seem that the simulations are longer when restarting from an already opened model
         
-% % % %     end % end while episode not completed
+    end % end while episode not completed
 end % end episodes counting
 
 % Close the text file
