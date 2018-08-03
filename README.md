@@ -5,7 +5,7 @@ The aim of this work is to explore the feasibility of a Machine Learning based E
 
 After two months of work, the results show that Reinforcement Learning can adress simultaneously the issues of Reliability, Efficiency and Lifetime of the grid.
 
-The work is being continued by Namireddy Praveen Reddy, PhD candidate at the NTNU Department of Marine Technology. 
+The work is being continued by Namireddy Praveen Reddy, PhD candidate at the NTNU Department of Marine Technology. Part of his task will be to make the simulations faster and to improve the interpreter and agent.
 
 Contact: d.pasdeloup@gmail.com | mehdi.zadeh@ntnu.no
 
