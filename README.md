@@ -3,7 +3,7 @@ Work realized during summer 2018 at the Norwegian University of Science and Tech
 
 The aim of this work is to explore the feasibility of a Machine Learning based Energy Management System (EMS) for inboard DC-grid. The main source of energy is hydrogen (Fuel-Cell) associated with a battery to supply fast load changes.
 
-After two months of work, the results show that Reinforcement Learning can adress the issues of Reliability, Efficiency and Lifetime of the grid together. 
+After two months of work, the results show that Reinforcement Learning can adress simultaneously the issues of Reliability, Efficiency and Lifetime of the grid.
 
 The work is being continued by Namireddy Praveen Reddy, PhD candidate at the NTNU Department of Marine Technology. 
 
