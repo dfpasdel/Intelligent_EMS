@@ -10,7 +10,7 @@ function [rSOC,rP_FC,rP_batt,rSteady] = getReward(S,actionIdx)
 % REWARD for the SOC:
 SOCtarget = 0.7;
 rSOC = 0.5 - abs(S.SOC-SOCtarget)/0.3;
-if (S.SOC >= 0.65) && (S.SOC <= 0.75) && (actionIdx == 1)
+if (S.SOC >= 0.65) && (S.SOC <= 0.75) %% && (actionIdx == 1)
     rSOC = rSOC * 2;
 end      
 if (S.SOC <= 0.55) && (actionIdx ~= 3)... % Low SOC and ot incresasing the FC power
@@ -40,7 +40,7 @@ rP_batt = max(0,rP_batt);
 rP_batt = rP_batt * coef;
 
 % REWARD for steady input
-rSteady = 0.2 * (S.Time_steady - 4);
+rSteady = (1/7) * (S.Time_steady - 2);
 rSteady = max(rSteady,0);
 rSteady = min(rSteady,1);
 rSteady = rSteady * coef;
