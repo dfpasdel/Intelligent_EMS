@@ -39,8 +39,8 @@ coef = max(0,coef);
 coef = min(1,coef);
 
 % REWARD for the FC power
-% We aim FC power lower than 0.8 p.u.
-if S.P_FC <= 0.8
+% We aim FC power lower than 0.7 p.u.
+if S.P_FC_out <= 0.7
     rP_FC = 1;
 else
     rP_FC = 0;
@@ -54,7 +54,7 @@ rP_batt = max(0,rP_batt);
 rP_batt = rP_batt * coef;
 
 % REWARD for steady input
-rSteady = (1/7) * (S.Time_steady - 2);
+rSteady = (1/7) * (S.iter_steady - 2);
 rSteady = max(rSteady,0);
 rSteady = min(rSteady,1);
 rSteady = rSteady * coef;
